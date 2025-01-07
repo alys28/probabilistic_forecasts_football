@@ -14,18 +14,21 @@ def getIDs(years):
     for year in years:
         for week_no in range(1, 19):
             url = f"https://cdn.espn.com/core/nfl/schedule?xhr=1&year={year}&week={week_no}" 
-            try:
-                response = requests.get(url)
-                if response.status_code == 200:
-                    print(f"Request for week {week_no}, year {year} was successful!")
-                    data = response.json()
-                    schedule = data["content"]["schedule"]
-                    for date in schedule:
-                        for game in date["games"]:
-                            if game["competitions"]["playByPlayAvailable"]:
-                                id = game["competitions"]["id"]
+            # try:
+            response = requests.get(url)
+            if response.status_code == 200:
+                print(f"Request for week {week_no}, year {year} was successful!")
+                data = response.json()
+                schedule = data["content"]["schedule"]
+                for _, date_value in schedule.items():
+                    for game in date_value["games"]:
+                        if game["competitions"][0]["playByPlayAvailable"]:
+                            id = game["competitions"][0]["id"]
+                            print(id)
 
-                else:
-                    print(f"Failed to retrieve data. HTTP Status Code: {response.status_code}")
-            except:
-                print("Failed to get IDs")
+            else:
+                print(f"Failed to retrieve data. HTTP Status Code: {response.status_code}")
+            # except:
+            #     print("Failed to get IDs")
+
+getIDs([2023])
