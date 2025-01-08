@@ -11,6 +11,7 @@ def getIDs(years):
     '''
         years: List[int]
     '''
+    games = []
     for year in years:
         for week_no in range(1, 19):
             url = f"https://cdn.espn.com/core/nfl/schedule?xhr=1&year={year}&week={week_no}" 
@@ -24,11 +25,22 @@ def getIDs(years):
                     for game in date_value["games"]:
                         if game["competitions"][0]["playByPlayAvailable"]:
                             id = game["competitions"][0]["id"]
-                            print(id)
-
+                            isWinner = False
+                            team1 = game["competitions"][0]["competitors"][0]
+                            if team1["homeAway"] == "home":
+                                if team1["winner"]:
+                                    isWinner = True
+                                else:
+                                    isWinner = False                    
+                            else:
+                                if team1["winner"] == False:
+                                    isWinner = True
+                                else: 
+                                    isWinner = False
+                            games.append((id, isWinner))
             else:
                 print(f"Failed to retrieve data. HTTP Status Code: {response.status_code}")
             # except:
             #     print("Failed to get IDs")
 
-getIDs([2023])
+print(getIDs([2023]))
