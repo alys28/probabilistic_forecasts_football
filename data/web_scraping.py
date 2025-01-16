@@ -1,5 +1,7 @@
 import requests
 from typing import List, Tuple, Set, Dict, Any
+import pandas as pd
+import os
 
 def getIDs(years: List[int]) -> List[Tuple[str, int, str, str]]:
     """
@@ -73,12 +75,7 @@ def getPlayByPlay(game_id: str) -> List[Dict[str, Any]]:
         game_id (str): The unique ID of the game.
 
     Returns:
-        List[Dict[str, Any]]: A list of dictionaries representing each play, containing:
-                              - drive description
-                              - total yards in the drive
-                              - play result (e.g., "PUNT")
-                              - offensive plays count
-                              - other details from the "plays" list
+        List[Dict[str, Any]]: play information
     """
     play_by_play_url = f"https://cdn.espn.com/core/nfl/playbyplay?xhr=1&gameId={game_id}"
 
@@ -99,19 +96,35 @@ def getPlayByPlay(game_id: str) -> List[Dict[str, Any]]:
     # Extract information from each drive
     for drive in drives:
         drive_data = drive.get("plays", [])
-        extracted_plays.append(drive_data)
+        extracted_plays.extend(drive_data)
 
     return extracted_plays
 
-
-game_id = "401671830"  # Replace with a valid game ID
-try:
-    pbp_data = getPlayByPlay(game_id)
-    for play in pbp_data:
-        print(play[1])
-        break
-except Exception as e:
-    print(e)
-
-
 # Save everything in CSV
+def save_game(game_id: str, data: List[Dict[str, Any]], directory: str) -> None:
+    """
+    Saves the play-by-play data for a given NFL game ID to a CSV file in the specified directory.
+
+    Args:
+        game_id (str): The unique ID of the game.
+        data (List[Dict[str, Any]]): The play-by-play data to save.
+        directory (str): The directory where the CSV file will be saved.
+    """
+    # Ensure the directory exists, create it if it doesn't
+    os.makedirs(directory, exist_ok=True)
+
+    # Normalize the data and create a DataFrame
+    df = pd.json_normalize(data)
+    
+    # Construct the file path
+    file_path = os.path.join(directory, f"game_{game_id}.csv")
+    
+    # Save the DataFrame to a CSV file
+    df.to_csv(file_path, index=False)
+    
+    print(f"CSV file for game {game_id} saved at {file_path}")
+
+
+
+if __name__ == "__main__":
+    pass
