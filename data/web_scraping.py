@@ -1,5 +1,5 @@
 import requests
-from typing import List, Tuple, Set
+from typing import List, Tuple, Set, Dict, Any
 
 def getIDs(years: List[int]) -> List[Tuple[str, int, str, str]]:
     """
@@ -62,11 +62,56 @@ def getIDs(years: List[int]) -> List[Tuple[str, int, str, str]]:
     return unique_matches
 
 
-print(getIDs([2023]))
+# print(getIDs([2023]))
 
 # Get the play-by-play, given a game ID
-def getPlayByPlay(id: str) -> List[str]:
-    pass
+def getPlayByPlay(game_id: str) -> List[Dict[str, Any]]:
+    """
+    Fetches play-by-play data for a given NFL game ID.
+
+    Args:
+        game_id (str): The unique ID of the game.
+
+    Returns:
+        List[Dict[str, Any]]: A list of dictionaries representing each play, containing:
+                              - drive description
+                              - total yards in the drive
+                              - play result (e.g., "PUNT")
+                              - offensive plays count
+                              - other details from the "plays" list
+    """
+    play_by_play_url = f"https://cdn.espn.com/core/nfl/playbyplay?xhr=1&gameId={game_id}"
+
+    # Fetch the play-by-play data
+    response = requests.get(play_by_play_url)
+    if response.status_code != 200:
+        raise Exception(f"Failed to fetch play-by-play data for game {game_id}: {response.status_code}")
+
+    data = response.json()
+
+    # Navigate to the play-by-play content
+    drives = data.get("gamepackageJSON", {}).get("drives", {}).get("previous", [])
+    if not drives:
+        raise Exception(f"No play-by-play data found for game {game_id}")
+
+    extracted_plays = []
+
+    # Extract information from each drive
+    for drive in drives:
+        drive_data = drive.get("plays", [])
+        extracted_plays.append(drive_data)
+
+    return extracted_plays
+
+
+game_id = "401671830"  # Replace with a valid game ID
+try:
+    pbp_data = getPlayByPlay(game_id)
+    for play in pbp_data:
+        print(play[1])
+        break
+except Exception as e:
+    print(e)
 
 
 # Save everything in CSV
