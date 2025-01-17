@@ -3,12 +3,12 @@ from typing import List, Tuple, Set, Dict, Any
 import pandas as pd
 import os
 
-def getIDs(years: List[int]) -> List[Tuple[str, int, str, str]]:
+def getIDs(year: int) -> List[Tuple[str, int, str, str]]:
     """
     Fetches unique match data for NFL teams for the given years, including match ID, home win status, and team IDs.
 
     Args:
-        years (List[int]): A list of years for which to fetch the match data.
+        year (int): year for which to fetch the match data.
 
     Returns:
         List[Tuple[str, int, str, str]]: A list of unique tuples, where each tuple contains:
@@ -33,33 +33,32 @@ def getIDs(years: List[int]) -> List[Tuple[str, int, str, str]]:
 
     # Fetch match details for each team and year
     for team_id in team_ids:
-        for year in years:
-            url = team_schedule_url_template.format(TEAM_ID=team_id, YEAR=year)
-            response = requests.get(url)
-            if response.status_code != 200:
-                print(f"Failed to fetch schedule for team {team_id} in year {year}: {response.status_code}")
-                continue
-            schedule_data = response.json()
-            events = schedule_data.get("events", [])
-            for event in events:
-                match_id = event.get("id")
-                if match_id in seen_matches:
-                    continue  # Skip duplicate matches
-                seen_matches.add(match_id)
+        url = team_schedule_url_template.format(TEAM_ID=team_id, YEAR=year)
+        response = requests.get(url)
+        if response.status_code != 200:
+            print(f"Failed to fetch schedule for team {team_id} in year {year}: {response.status_code}")
+            continue
+        schedule_data = response.json()
+        events = schedule_data.get("events", [])
+        for event in events:
+            match_id = event.get("id")
+            if match_id in seen_matches:
+                continue  # Skip duplicate matches
+            seen_matches.add(match_id)
 
-                competitions = event.get("competitions", [])
-                if competitions:
-                    competition = competitions[0]
-                    competitors = competition.get("competitors", [])
-                    if len(competitors) == 2:
-                        home_team = competitors[0]
-                        away_team = competitors[1]
-                        home_win = home_team.get("winner", False)
-                        home_team_id = home_team.get("id")
-                        away_team_id = away_team.get("id")
-                        unique_matches.append(
-                            (match_id, 1 if home_win else 0, home_team_id, away_team_id)
-                        )
+            competitions = event.get("competitions", [])
+            if competitions:
+                competition = competitions[0]
+                competitors = competition.get("competitors", [])
+                if len(competitors) == 2:
+                    home_team = competitors[0]
+                    away_team = competitors[1]
+                    home_win = home_team.get("winner", False)
+                    home_team_id = home_team.get("id")
+                    away_team_id = away_team.get("id")
+                    unique_matches.append(
+                        (match_id, 1 if home_win else 0, home_team_id, away_team_id)
+                    )
 
     return unique_matches
 
@@ -127,4 +126,19 @@ def save_game(game_id: str, data: List[Dict[str, Any]], directory: str) -> None:
 
 
 if __name__ == "__main__":
-    pass
+    years = [2023]
+    for year in years:
+        matches = getIDs(year)
+        print(f"Found {len(matches)} unique matches for year {years}")
+        failures = 0
+        for match in matches:
+            match_id, home_win, home_team_id, away_team_id  = match
+            try:
+                play_by_play_data = getPlayByPlay(match_id)
+                save_game(match_id, [{"home_team_id": home_team_id, "away_team_id": away_team_id, "home_win": home_win}].extend(play_by_play_data), f"data/{year}")
+            except Exception as e:
+                print({str(e)})
+                failures += 1
+            break
+        
+
