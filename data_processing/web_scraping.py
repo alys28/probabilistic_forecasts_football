@@ -123,21 +123,49 @@ def save_game(game_id: str, data: List[Dict[str, Any]], directory: str) -> None:
     
     print(f"CSV file for game {game_id} saved at {file_path}")
 
+def getHomeWinProbabilities(game_id: str) -> List[Dict[str, Any]]:
+    """
+    Fetches home win probabilities for each sequenceNumber for a given game ID.
+
+    Args:
+        game_id (str): The unique ID of the game.
+
+    Returns:
+        List[Dict[str, Any]]: A list of dictionaries, each containing sequenceNumber and homeWinProbability.
+    """
+    url = f"http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/events/{game_id}/competitions/{game_id}/probabilities?limit=999"
+    response = requests.get(url)
+    if response.status_code != 200:
+        raise Exception(f"Failed to fetch home win probabilities for game {game_id}: {response.status_code}")
+    
+    data = response.json()
+    probabilities = data.get("items", [])
+    
+    extracted_probabilities = [
+        {
+            "sequenceNumber": prob.get("sequenceNumber"),
+            "homeWinProbability": prob.get("homeWinPercentage")
+        }
+        for prob in probabilities
+    ]
+    
+    return extracted_probabilities
 
 
 if __name__ == "__main__":
-    years = [2023]
+    years = [2018, 2019, 2022, 2023]
     for year in years:
         matches = getIDs(year)
         print(f"Found {len(matches)} unique matches for year {year}")
         failures = 0
         for match in matches:
             match_id, home_win, home_team_id, away_team_id  = match
-            # try:
-            play_by_play_data = getPlayByPlay(match_id)
-            save_game(match_id, [{"home_team_id": home_team_id, "away_team_id": away_team_id, "home_win": home_win}] + play_by_play_data, f"data/{year}")
-            # except Exception as e:
-            #     print(str(e))
-            #     failures += 1
-        
-
+            try:
+                play_by_play_data = getPlayByPlay(match_id)
+                probabilities = getHomeWinProbabilities(match_id)
+                merged_array = [{**d1, **d2} for d1, d2 in zip(play_by_play_data, probabilities[1:])]
+                save_game(match_id, [{"home_team_id": home_team_id, "away_team_id": away_team_id, "home_win": home_win} | probabilities[0]] + merged_array, f"data_with_probabilities/{year}")
+            except Exception as e:
+                print(str(e))
+                failures += 1
+        print(f"Failed to fetch play-by-play data for {failures} matches")
