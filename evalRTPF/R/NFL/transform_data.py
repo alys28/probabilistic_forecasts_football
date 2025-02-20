@@ -1,11 +1,12 @@
 import pandas as pd
+import numpy as np
 import os
 
 # Directory containing CSV files
 directory = "2018"  # Change this to your actual directory
 
 # Function to process a CSV file
-def process_csv(file_path):
+def process_csv(file_path, interpolate = False):
     df = pd.read_csv(file_path)
     
     # Convert clock to minutes remaining
@@ -25,11 +26,26 @@ def process_csv(file_path):
     # Assign phat_B as the first value of home_win_probability
     df["phat_B"] = df["homeWinProbability"].iloc[0]
     df["Y"] = df["home_win"].iloc[0]
-    
-    # Save the updated file
-    updated_file_path = os.path.join(directory, "updated_" + os.path.basename(file_path))
-    df.to_csv(updated_file_path, index=False)
-    print(f"Processed and saved: {updated_file_path}")
+    if interpolate:
+        # Interpolation for fixed game_completed values
+        new_game_completed = np.arange(0, 1.01, 0.01)
+        interpolated_df = pd.DataFrame({
+            "game_completed": new_game_completed,
+            "phat_A": np.interp(new_game_completed, df["game_completed"], df["phat_A"]),
+            "phat_B": np.interp(new_game_completed, df["game_completed"], df["phat_B"]),
+            "Y": df["Y"].iloc[0]  # Assuming Y remains constant
+        })
+        
+        # Save the interpolated file
+        interpolated_file_path = os.path.join(directory, "interpolated_" + os.path.basename(file_path))
+        interpolated_df.to_csv(interpolated_file_path, index=False)
+        print(f"Processed and saved: {interpolated_file_path}")
+    else:
+        # Save the updated file
+        updated_file_path = os.path.join(directory, "updated_" + os.path.basename(file_path))
+        df.to_csv(updated_file_path, index=False)
+        print(f"Processed and saved: {updated_file_path}")
+
 
 # Process all CSV files in the directory
 for filename in os.listdir(directory):
