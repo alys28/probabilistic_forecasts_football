@@ -1,3 +1,4 @@
 env
 data_processing/data
 data_processing/data_with_probabilities
+.Rproj.user
