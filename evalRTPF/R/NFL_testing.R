@@ -1,7 +1,23 @@
-# Load necessary libraries
-library(dplyr)
-library(evalRTPF)
+library(ggplot2)
+library(tibble)
+library(MASS)
+library(rlist)
+#> 
+#> Attaching package: 'MASS'
+#> The following object is masked from 'package:dplyr':
+#> 
+#>     select
+nsamp <- 206 # number of in-game events
+ngame <- 1 # number of games
 
+#' Parameter for generating the eigenvalues, and p-values
+D <- 10 # Number of eigenvalues to keep
+N_MC <- 5000 # for simulating the p-value
+L <- function(x, y) {
+  return((x - y) ^ 2)
+}
+
+# Data generation ---------------------------------------------------------=
 # Define the path to the dataset
 dataset_path <- "/Users/aly/Documents/University of Waterloo/Winter 2025/Research/code/evalRTPF/R/updated_file.csv"
 
@@ -10,35 +26,103 @@ dataset <- read.csv(dataset_path)
 
 # Ensure your dataset has the necessary columns
 # For example, if your columns are named differently, rename them
-dataset <- dataset %>%
+df_equ <- dataset %>%
   rename(
     phat_A = "phat_A",
     phat_B = "phat_B",
     Y = "Y",
     grid = "game_completed"
-  )
+  ) %>%
+  group_by(grid) %>%
+  mutate(
+    p_bar_12 = mean(phat_A - phat_B),
+    diff_non_cent = phat_A - phat_B,
+    diff_cent = phat_A - phat_B - p_bar_12
+  ) %>% 
+  ungroup()
 
-# HOW TO INTERPOLATE????
-# Run the lin_interp function
-interpolated_data <- lin_interp(prob = dataset$phat_A, grid = dataset$grid, outcome = dataset$Y)
+# Apply our test ----------------------------------------------------------
+
+Z <- df_equ %>% group_by(grid) %>%
+  summarise(delta_n = mean(L(phat_A, Y) - L(phat_B, Y))) %>%
+  {sum((.)$delta_n ^ 2) / nsamp * ngame}
+
+temp <- df_equ %>% group_split(grid, .keep = FALSE)
+
+eigV_hat <- lapply(1:nsamp, function(i) {
+  sapply(1:nsamp, function(j) {
+    as.numeric(temp[[i]]$diff_non_cent %*% temp[[j]]$diff_non_cent / ngame)
+  })
+}) %>% list.rbind %>% {
+  eigs_sym(
+    A = (.),
+    k = D,
+    which = "LM",
+    opts = list(retvec = FALSE)
+  )$values
+} %>%
+  {
+    (.) / nsamp
+  }
 
 
-# Run the calc_L_s2 function
-result_L_s2 <- calc_L_s2(dataset, pA = "phat_A", pB = "phat_B", Y = "Y", grid = "grid")
 
-# Print the result of calc_L_s2
-print(result_L_s2)
+# eigV_til <- lapply(1:nsamp, function(i) {
+#   sapply(1:nsamp, function(j) {
+#     as.numeric(temp[[i]]$diff_cent %*% temp[[j]]$diff_cent / ngame)
+#   })
+# }) %>% list.rbind %>% {
+#   eigs_sym(
+#     A = (.),
+#     k = D,
+#     which = "LM",
+#     opts = list(retvec = FALSE)
+#   )$values
+# } %>%
+#   {
+#     (.) / nsamp
+#   }
 
-# Run the calc_pval function
-# Assuming you have the necessary inputs for calc_pval
-Z <- 1.96  # Example value, replace with actual value
-eig <- c(1, 2, 3)  # Example values, replace with actual values
-quan <- 0.95  # Example value, replace with actual value
-result_pval <- calc_pval(Z, eig, quan)
+# MC_hat <- sapply(1:N_MC, function(x) {
+#   crossprod(eigV_hat, rchisq(D, df = 1))
+# })
 
-# Print the result of calc_pval
-print(result_pval)
+# q_90_hat <- quantile(MC_hat, 0.90)
+# q_95_hat <- quantile(MC_hat, 0.95)
+# q_99_hat <- quantile(MC_hat, 0.99)
 
-# Save the results to a file
-write.csv(result_L_s2, "/Users/aly/Documents/University of Waterloo/Winter 2025/Research/code/evalRTPF/R/result_L_s2.csv")
-write.csv(result_pval, "/Users/aly/Documents/University of Waterloo/Winter 2025/Research/code/evalRTPF/R/result_pval.csv")
+# MC_til <- sapply(1:N_MC, function(x) {
+#   crossprod(eigV_til, rchisq(D, df = 1))
+# })
+
+# q_90_til <- quantile(MC_til, 0.90)
+# q_95_til <- quantile(MC_til, 0.95)
+# q_99_til <- quantile(MC_til, 0.99)
+
+# p_hat <- 1 - ecdf(MC_hat)(Z)
+
+# tibble(
+#   type  = c("non-center", "center"),
+#   Z = rep(Z, 2),
+#   "pval" = c(p_hat, p_hat),
+#   "90%" = c(q_90_hat, q_90_til),
+#   "95%" = c(q_95_hat, q_95_til),
+#   "99%" = c(q_99_hat, q_99_til))
+# #> # A tibble: 2 × 6
+# #>   type            Z  pval `90%` `95%` `99%`
+# #>   <chr>       <dbl> <dbl> <dbl> <dbl> <dbl>
+# #> 1 non-center 0.0262 0.869 0.388 0.540 0.877
+# #> 2 center     0.0262 0.869 0.386 0.542 0.995
+
+to_center <- FALSE
+
+ZZ <- calc_Z(df = df_equ, pA = "phat_A", pB = "phat_B", Y = "Y", nsamp = nsamp, ngame = ngame)
+eigg <- calc_eig(df = df_equ, n_eig = D, ngame = ngame, 
+                 nsamp = nsamp, grid = "grid", cent = to_center)
+oh <- calc_pval(ZZ, eig = eigg, quan = c(0.90, 0.95, 0.99), n_MC = N_MC)
+
+
+temp <- calc_L_s2(df = df_equ, pA = "phat_A", pB = "phat_B")
+print(temp)
+plot_pcb(df = temp)
+

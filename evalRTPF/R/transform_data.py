@@ -12,7 +12,7 @@ def parse_clock(clock):
 df["minutes_remaining"] = (4 - df["period.number"]) * 15 + df["clock.displayValue"][1:].apply(parse_clock)
 
 # Compute percentage of game completed
-df["game_completed"] = (1 - df["minutes_remaining"] / 60) * 100
+df["game_completed"] = (1 - df["minutes_remaining"] / 60)
 
 # Assign phat_A from home_win_probability
 df["phat_A"] = df["homeWinProbability"]

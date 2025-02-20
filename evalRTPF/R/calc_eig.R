@@ -15,7 +15,7 @@
 
 calc_eig <- function(df, n_eig = 10, ngame, nsamp, grid = "grid", cent = FALSE){
   diff <- ifelse(cent, "diff_cent", "diff_non_cent")
-  df_list <- df %>% dplyr::select(!!sym(grid), !!sym(diff)) %>% group_split(!!sym(grid), .keep = FALSE)
+  df_list <- df %>% dplyr::select(!!sym(grid), !!sym(diff)) %>% group_split(!!sym(grid), .keep = FALSE) # df_list is a list of data frames that contain the values of diff, grouped by same grid values
   df_vec <- lapply(seq_along(df_list), function(x){
     df_list[[x]] %>% unlist() %>% as.vector()
   })
@@ -30,3 +30,24 @@ calc_eig <- function(df, n_eig = 10, ngame, nsamp, grid = "grid", cent = FALSE){
 
   return(eigV)
 }
+
+
+# # E.g.
+# df <- data.frame(
+#   grid = c(1, 1, 2, 2, 3, 3),
+#   diff_non_cent = c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6),
+#   diff_cent = c(0.05, 0.15, 0.25, 0.35, 0.45, 0.55)
+# )
+
+# # becomes:
+# df_list <- list(
+#   data.frame(diff_non_cent = c(0.1, 0.2)),
+#   data.frame(diff_non_cent = c(0.3, 0.4)),
+#   data.frame(diff_non_cent = c(0.5, 0.6))
+# )
+# # which becomes:
+# df_vec <- list(
+#   c(0.1, 0.2),
+#   c(0.3, 0.4),
+#   c(0.5, 0.6)
+# )
