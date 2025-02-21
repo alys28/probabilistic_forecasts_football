@@ -8,7 +8,7 @@ library(RSpectra)
 #> The following object is masked from 'package:dplyr':
 #> 
 #>     select
-nsamp <- 200 # number of in-game events
+nsamp <- 201 # number of in-game events
 ngame <- 257 # number of games
 
 #' Parameter for generating the eigenvalues, and p-values
@@ -71,52 +71,52 @@ eigV_hat <- lapply(1:nsamp, function(i) {
 
 
 
-# eigV_til <- lapply(1:nsamp, function(i) {
-#   sapply(1:nsamp, function(j) {
-#     as.numeric(temp[[i]]$diff_cent %*% temp[[j]]$diff_cent / ngame)
-#   })
-# }) %>% list.rbind %>% {
-#   eigs_sym(
-#     A = (.),
-#     k = D,
-#     which = "LM",
-#     opts = list(retvec = FALSE)
-#   )$values
-# } %>%
-#   {
-#     (.) / nsamp
-#   }
+eigV_til <- lapply(1:nsamp, function(i) {
+  sapply(1:nsamp, function(j) {
+    as.numeric(temp[[i]]$diff_cent %*% temp[[j]]$diff_cent / ngame)
+  })
+}) %>% list.rbind %>% {
+  eigs_sym(
+    A = (.),
+    k = D,
+    which = "LM",
+    opts = list(retvec = FALSE)
+  )$values
+} %>%
+  {
+    (.) / nsamp
+  }
 
-# MC_hat <- sapply(1:N_MC, function(x) {
-#   crossprod(eigV_hat, rchisq(D, df = 1))
-# })
+MC_hat <- sapply(1:N_MC, function(x) {
+  crossprod(eigV_hat, rchisq(D, df = 1))
+})
 
-# q_90_hat <- quantile(MC_hat, 0.90)
-# q_95_hat <- quantile(MC_hat, 0.95)
-# q_99_hat <- quantile(MC_hat, 0.99)
+q_90_hat <- quantile(MC_hat, 0.90)
+q_95_hat <- quantile(MC_hat, 0.95)
+q_99_hat <- quantile(MC_hat, 0.99)
 
-# MC_til <- sapply(1:N_MC, function(x) {
-#   crossprod(eigV_til, rchisq(D, df = 1))
-# })
+MC_til <- sapply(1:N_MC, function(x) {
+  crossprod(eigV_til, rchisq(D, df = 1))
+})
 
-# q_90_til <- quantile(MC_til, 0.90)
-# q_95_til <- quantile(MC_til, 0.95)
-# q_99_til <- quantile(MC_til, 0.99)
+q_90_til <- quantile(MC_til, 0.90)
+q_95_til <- quantile(MC_til, 0.95)
+q_99_til <- quantile(MC_til, 0.99)
 
-# p_hat <- 1 - ecdf(MC_hat)(Z)
+p_hat <- 1 - ecdf(MC_hat)(Z)
 
-# tibble(
-#   type  = c("non-center", "center"),
-#   Z = rep(Z, 2),
-#   "pval" = c(p_hat, p_hat),
-#   "90%" = c(q_90_hat, q_90_til),
-#   "95%" = c(q_95_hat, q_95_til),
-#   "99%" = c(q_99_hat, q_99_til))
-# #> # A tibble: 2 × 6
-# #>   type            Z  pval `90%` `95%` `99%`
-# #>   <chr>       <dbl> <dbl> <dbl> <dbl> <dbl>
-# #> 1 non-center 0.0262 0.869 0.388 0.540 0.877
-# #> 2 center     0.0262 0.869 0.386 0.542 0.995
+tibble(
+  type  = c("non-center", "center"),
+  Z = rep(Z, 2),
+  "pval" = c(p_hat, p_hat),
+  "90%" = c(q_90_hat, q_90_til),
+  "95%" = c(q_95_hat, q_95_til),
+  "99%" = c(q_99_hat, q_99_til))
+#> # A tibble: 2 × 6
+#>   type            Z  pval `90%` `95%` `99%`
+#>   <chr>       <dbl> <dbl> <dbl> <dbl> <dbl>
+#> 1 non-center 0.0262 0.869 0.388 0.540 0.877
+#> 2 center     0.0262 0.869 0.386 0.542 0.995
 
 to_center <- FALSE
 
@@ -130,3 +130,11 @@ temp <- calc_L_s2(df = df_equ, pA = "phat_A", pB = "phat_B")
 print(temp)
 plot_pcb(df = temp)
 
+tibble(
+  type = ifelse(to_center, "center", "non-center"),
+  Z = ZZ,
+  pval = oh$p_val,
+  "90%" = oh$quantile[1],
+  "95%" = oh$quantile[2],
+  "99%" = oh$quantile[3]
+)
