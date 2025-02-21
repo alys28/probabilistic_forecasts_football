@@ -2,6 +2,7 @@ library(ggplot2)
 library(tibble)
 library(MASS)
 library(rlist)
+library(RSpectra)
 #> 
 #> Attaching package: 'MASS'
 #> The following object is masked from 'package:dplyr':
@@ -17,7 +18,7 @@ L <- function(x, y) {
   return((x - y) ^ 2)
 }
 
-# Data generation ---------------------------------------------------------=
+# Data formatting ---------------------------------------------------------=
 # Define the path to the dataset
 dataset_path <- "/Users/aly/Documents/University of Waterloo/Winter 2025/Research/code/evalRTPF/R/NFL/interpolated_combined_data.csv"
 
@@ -27,14 +28,23 @@ dataset <- read.csv(dataset_path)
 # Ensure your dataset has the necessary columns
 # For example, if your columns are named differently, rename them
 df_equ <- dataset %>%
+  group_by(game_id) %>%
+  filter(!any(is.na(across(everything())))) %>%
+  ungroup() %>%
   rename(
     phat_A = "phat_A",
     phat_B = "phat_B",
     Y = "Y",
     grid = "game_completed"
   ) %>%
-  group_by(grid) 
-
+  group_by(grid) %>%
+  mutate(
+    p_bar_12 = mean(phat_A - phat_B),
+    diff_non_cent = phat_A - phat_B,
+    diff_cent = phat_A - phat_B - p_bar_12
+  ) %>% 
+  ungroup()
+ngame <- length(unique(df_equ$game_id))
 # Apply our test ----------------------------------------------------------
 
 Z <- df_equ %>% group_by(grid) %>%
