@@ -7,8 +7,8 @@ library(rlist)
 #> The following object is masked from 'package:dplyr':
 #> 
 #>     select
-nsamp <- 206 # number of in-game events
-ngame <- 1 # number of games
+nsamp <- 200 # number of in-game events
+ngame <- 257 # number of games
 
 #' Parameter for generating the eigenvalues, and p-values
 D <- 10 # Number of eigenvalues to keep
@@ -19,7 +19,7 @@ L <- function(x, y) {
 
 # Data generation ---------------------------------------------------------=
 # Define the path to the dataset
-dataset_path <- "/Users/aly/Documents/University of Waterloo/Winter 2025/Research/code/evalRTPF/R/updated_file.csv"
+dataset_path <- "/Users/aly/Documents/University of Waterloo/Winter 2025/Research/code/evalRTPF/R/NFL/interpolated_combined_data.csv"
 
 # Load the dataset
 dataset <- read.csv(dataset_path)
@@ -33,13 +33,7 @@ df_equ <- dataset %>%
     Y = "Y",
     grid = "game_completed"
   ) %>%
-  group_by(grid) %>%
-  mutate(
-    p_bar_12 = mean(phat_A - phat_B),
-    diff_non_cent = phat_A - phat_B,
-    diff_cent = phat_A - phat_B - p_bar_12
-  ) %>% 
-  ungroup()
+  group_by(grid) 
 
 # Apply our test ----------------------------------------------------------
 
