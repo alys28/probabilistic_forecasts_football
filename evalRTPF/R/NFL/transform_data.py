@@ -49,9 +49,10 @@ def process_csv(file_path, interpolate = False, steps = 0.01):
 
 
 # Process all CSV files in the directory
-for filename in os.listdir(directory):
-    if filename.endswith(".csv"):
-        file_path = os.path.join(directory, filename)
-        process_csv(file_path, True, 0.005)  # Interpolate with 0.5% steps
+if __name__ == "__main__":
+    for filename in os.listdir(directory):
+        if filename.endswith(".csv"):
+            file_path = os.path.join(directory, filename)
+            process_csv(file_path, True, 0.005)  # Interpolate with 0.5% steps
 
-print("Processing complete for all CSV files in the directory.")
+    print("Processing complete for all CSV files in the directory.")
