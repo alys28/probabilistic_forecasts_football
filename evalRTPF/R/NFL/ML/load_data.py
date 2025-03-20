@@ -10,7 +10,7 @@ def load_game(data_dir, data_file):
     return data
 
 # data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../.."))
-data_dir = "dataset_interpolated/2019/"
+data_dir = "dataset_interpolated/2023/"
 data_file = "game_401127859.csv"
 # load_game(data_dir, data_file)
 
@@ -49,9 +49,6 @@ def interpolate_data(data, data_dir, data_file, steps=0.005):
     print(f"Processed and saved: {updated_file_path}")
 
     return new_df
-
-
-
     # interpolated_df = pandas.DataFrame({
     #     "game_completed": new_game_completed,
     #     "homeWinProbabilityInterpolated": np.interp(new_game_completed, data["game_completed"], data["homeWinProbability"]),
@@ -65,7 +62,6 @@ def interpolate_data(data, data_dir, data_file, steps=0.005):
 def apply_interpolation(directory, steps=0.005):
     for filename in os.listdir(directory):
         if filename.endswith(".csv"):
-            print(filename)
             interpolate_data(load_game(directory, filename), data_dir=directory, data_file=filename,steps=steps)
     print("Interpolation complete")
 if __name__ == "__main__":
