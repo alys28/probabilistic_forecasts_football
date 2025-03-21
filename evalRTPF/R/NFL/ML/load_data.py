@@ -10,11 +10,28 @@ def load_game(data_dir, data_file):
     return data
 
 # data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../.."))
-data_dir = "dataset_interpolated/2023/"
+data_dir = "dataset_interpolated/2024/"
 data_file = "game_401127859.csv"
 # load_game(data_dir, data_file)
 
 def interpolate_data(data, data_dir, data_file, steps=0.005):
+    '''
+    Interpolates game data to create uniformly spaced time steps.
+
+    Inputs:
+    - data: a pandas DataFrame containing game event data with columns like 
+            "period.number", "clock.displayValue", and "homeWinProbability".
+    - data_dir: string, directory path where the data file is located.
+    - data_file: string, name of the original CSV file to save the updated version.
+    - steps: float, optional (default=0.005), the interpolation interval as a percentage 
+             of the game completed (i.e., 0.5% increments by default).
+
+    Output:
+    - new_df: a pandas DataFrame with interpolated game data, where rows are added or 
+              duplicated to create evenly spaced "timestep" values based on 
+              game progress from 0 to 1 (0% to 100% complete).
+              The result is saved as a new CSV file in the same directory.
+    '''
     def parse_clock(clock):
         minutes, seconds = map(int, clock.split(":"))
         return minutes + seconds / 60  # Convert to fraction of a minute
