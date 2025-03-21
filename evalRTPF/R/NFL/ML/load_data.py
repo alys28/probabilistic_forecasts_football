@@ -39,7 +39,7 @@ def interpolate_data(data, data_dir, data_file, steps=0.005):
             j += 1
         j = min(j, len(data) - 1)
         if not has_inserted:
-            row = data.iloc[[max(0, j - 1)]].copy()
+            row = data.iloc[[max(1, j - 1)]].copy()
             row["timestep"] = new_game_completed[i]
             new_df = pd.concat([new_df, row], ignore_index=True)
 
