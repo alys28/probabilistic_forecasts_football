@@ -3,3 +3,4 @@ data_processing/data
 data_processing/data_with_probabilities
 .Rproj.user
 evalRTPF/R/NFL/ML/dataset
+*.csv

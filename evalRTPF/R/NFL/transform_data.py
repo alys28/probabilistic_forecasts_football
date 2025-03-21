@@ -3,7 +3,7 @@ import numpy as np
 import os
 
 # Directory containing CSV files
-directory = "2018_interpolated"  # Change this to your actual directory
+directory = "LR_testing"  # Change this to your actual directory
 
 # Function to process a CSV file
 def process_csv(file_path, interpolate = False, steps = 0.01):
@@ -42,10 +42,18 @@ def process_csv(file_path, interpolate = False, steps = 0.01):
         interpolated_df.to_csv(interpolated_file_path, index=False)
         print(f"Processed and saved: {interpolated_file_path}")
     else:
-        # Save the updated file
-        updated_file_path = os.path.join(directory, "updated_" + os.path.basename(file_path))
-        df.to_csv(updated_file_path, index=False)
-        print(f"Processed and saved: {updated_file_path}")
+        df = df[df['timestep'].duplicated(keep='first') == False]
+        interpolated_df = pd.DataFrame({
+            "game_id": os.path.basename(file_path).split("_")[-1].split(".")[0],  # extract game_id from file_path: "2018_interpolated/updated_game_2018090600.csv",
+            "game_completed": df["timestep"].iloc[1:],
+            "phat_A": df["phat_A"].iloc[1:],
+            "phat_B": df["phat_b"].iloc[1:],
+            "Y": df["Y"].iloc[0]  # Assuming Y remains constant
+        })
+        # Save the file
+        interpolated_file_path = os.path.join(directory, "formatted_" + os.path.basename(file_path))
+        interpolated_df.to_csv(interpolated_file_path, index=False)
+        print(f"Processed and saved: {interpolated_file_path}")
 
 
 # Process all CSV files in the directory
@@ -53,6 +61,6 @@ if __name__ == "__main__":
     for filename in os.listdir(directory):
         if filename.endswith(".csv"):
             file_path = os.path.join(directory, filename)
-            process_csv(file_path, True, 0.005)  # Interpolate with 0.5% steps
-
+            print(file_path)
+            process_csv(file_path, False, 0.005)  # Interpolate with 0.5% steps
     print("Processing complete for all CSV files in the directory.")

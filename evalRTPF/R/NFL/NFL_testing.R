@@ -9,7 +9,7 @@ library(RSpectra)
 #> 
 #>     select
 nsamp <- 201 # number of in-game events
-ngame <- 257 # number of games
+ngame <- 545 # number of games
 
 #' Parameter for generating the eigenvalues, and p-values
 D <- 10 # Number of eigenvalues to keep
@@ -20,7 +20,7 @@ L <- function(x, y) {
 
 # Data formatting ---------------------------------------------------------=
 # Define the path to the dataset
-dataset_path <- "/Users/aly/Documents/University of Waterloo/Winter 2025/Research/code/evalRTPF/R/NFL/interpolated_combined_data.csv"
+dataset_path <- "/Users/aly/Documents/University of Waterloo/Winter 2025/Research/code/evalRTPF/R/NFL/LR_interpolated_combined_data.csv"
 
 # Load the dataset
 dataset <- read.csv(dataset_path)
