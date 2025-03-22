@@ -116,7 +116,7 @@ def plot(models, X_tests):
     plt.show()
 
 
-def write_predictions(models, features_test_data, interpolated_dir):
+def write_predictions(models, features_test_data, interpolated_dir, phat_b = "phat_b"):
 # Write the predictions to csv file
     for folder in features_test_data:
         print(folder)
@@ -132,6 +132,6 @@ def write_predictions(models, features_test_data, interpolated_dir):
                 for index, row in df.iloc[1:].iterrows():
                     # Round timesteps to the nearest 0.005
                     if round(row["timestep"], 3) == round(timestep, 3):
-                        df.at[index, "phat_b"] = pred[0][1]
+                        df.at[index, phat_b] = pred[0][1]
             df.to_csv(os.path.join(interpolated_dir, folder, file), index=False)
             print(f"Finished writing to {file}")
