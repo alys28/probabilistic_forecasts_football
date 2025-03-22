@@ -95,7 +95,7 @@ def test_feature_selection(data, features):
             feature_data[file] += new_row
     return feature_data
 
-def plot(models, X_tests):
+def plot(models, X_tests, title=""):
     # Test accuracy of model for each timestep on test data and plot
     accuracies = []
     timesteps = []
@@ -112,7 +112,7 @@ def plot(models, X_tests):
     plt.plot(timesteps, accuracies)
     plt.xlabel("Timestep")
     plt.ylabel("Accuracy")
-    plt.title("Accuracy of Logistic Regression Model for Each Timestep")
+    plt.title(title)
     plt.show()
 
 
