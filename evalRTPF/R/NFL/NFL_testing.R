@@ -20,7 +20,7 @@ L <- function(x, y) {
 
 # Data formatting ---------------------------------------------------------=
 # Define the path to the dataset
-dataset_path <- "/Users/aly/Documents/University of Waterloo/Winter 2025/Research/code/evalRTPF/R/NFL/LR_interpolated_combined_data.csv"
+dataset_path <- "/Users/aly/Documents/University of Waterloo/Winter 2025/Research/code/evalRTPF/R/NFL/LR_RF_interpolated_combined_data.csv"
 
 # Load the dataset
 dataset <- read.csv(dataset_path)

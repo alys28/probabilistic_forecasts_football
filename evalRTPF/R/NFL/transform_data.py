@@ -3,10 +3,10 @@ import numpy as np
 import os
 
 # Directory containing CSV files
-directory = "LR_testing"  # Change this to your actual directory
+directory = "LR_RF_testing"  # Change this to your actual directory
 
 # Function to process a CSV file
-def process_csv(file_path, interpolate = False, steps = 0.01):
+def process_csv(file_path, phat_A, phat_b, interpolate = False, steps = 0.01):
     df = pd.read_csv(file_path)
     
     # Convert clock to minutes remaining
@@ -32,8 +32,8 @@ def process_csv(file_path, interpolate = False, steps = 0.01):
         interpolated_df = pd.DataFrame({
             "game_id": os.path.basename(file_path).split("_")[-1].split(".")[0],  # extract game_id from file_path: "2018_interpolated/updated_game_2018090600.csv",
             "game_completed": new_game_completed,
-            "phat_A": np.interp(new_game_completed, df["game_completed"], df["phat_A"]),
-            "phat_B": np.interp(new_game_completed, df["game_completed"], df["phat_B"]),
+            "phat_A": np.interp(new_game_completed, df["game_completed"], df[phat_A]),
+            "phat_B": np.interp(new_game_completed, df["game_completed"], df[phat_b]),
             "Y": df["Y"].iloc[0]  # Assuming Y remains constant
         })
         
@@ -46,8 +46,8 @@ def process_csv(file_path, interpolate = False, steps = 0.01):
         interpolated_df = pd.DataFrame({
             "game_id": os.path.basename(file_path).split("_")[-1].split(".")[0],  # extract game_id from file_path: "2018_interpolated/updated_game_2018090600.csv",
             "game_completed": df["timestep"].iloc[1:],
-            "phat_A": df["phat_A"].iloc[1:],
-            "phat_B": df["phat_b"].iloc[1:],
+            "phat_A": df[phat_A].iloc[1:],
+            "phat_B": df[phat_b].iloc[1:],
             "Y": df["Y"].iloc[0]  # Assuming Y remains constant
         })
         # Save the file
@@ -62,5 +62,5 @@ if __name__ == "__main__":
         if filename.endswith(".csv"):
             file_path = os.path.join(directory, filename)
             print(file_path)
-            process_csv(file_path, False, 0.005)  # Interpolate with 0.5% steps
+            process_csv(file_path, "phat_b", "random_forest_phat_b", False, 0.005)  # Interpolate with 0.5% steps
     print("Processing complete for all CSV files in the directory.")

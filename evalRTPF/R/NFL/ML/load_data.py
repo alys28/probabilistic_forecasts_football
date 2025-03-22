@@ -10,8 +10,7 @@ def load_game(data_dir, data_file):
     return data
 
 # data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../.."))
-data_dir = "dataset_interpolated/2024/"
-data_file = "game_401127859.csv"
+data_dir = "Random_Forest_testing"
 # load_game(data_dir, data_file)
 
 def interpolate_data(data, data_dir, data_file, steps=0.005):
