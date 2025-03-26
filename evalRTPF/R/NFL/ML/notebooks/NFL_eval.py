@@ -35,10 +35,13 @@ class NFLMultipleModelsEval(NFLEval):
         super().__init__(data_dir, features)
     def process(self, test_folders):
         self.training_data = process_data.load_training_data(self.data_dir, test_folders)
-        self.feature_data = process_data.feature_selection(self.training_data, self.features)
+        self.features_data = process_data.feature_selection(self.training_data, self.features)
         print("Done processing")
     def train(self, model, *args, **kwargs):
         self.models = process_data.setup_models(self.features_data, model, *args, **kwargs)
+        print("Done training")
+    def train_DL(self, model, *args, **kwargs):
+        self.models = process_data.setup_models_DL(self.features_data, model, *args, **kwargs)
         print("Done training")
     def evaluate(self, test_folders):
         test_folders = process_data.load_test_data(self.data_dir, test_folders)

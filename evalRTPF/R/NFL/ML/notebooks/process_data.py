@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import torch
 
 def load_training_data(interpolated_dir, test = [2023, 2024]):
     training_data = {}
@@ -23,6 +24,7 @@ def load_training_data(interpolated_dir, test = [2023, 2024]):
                                 training_data[row["timestep"]] = [row] 
                             else:
                                 training_data[row["timestep"]] += [row]
+                    break
             else: 
                 print("skipping ", folder)
     return training_data
@@ -53,6 +55,20 @@ def setup_models(features_data, MODEL, *args, **kwargs):
         models[timestep] = model
     return models
 
+def setup_models_DL(features_data, MODEL, *args, **kwargs):
+    '''
+    Converts features into torch tensors and trains the model
+    '''
+    models = {}
+    for timestep in features_data:
+        print("HELLO!")
+        X = torch.tensor(np.array(features_data[timestep])[:, 1:], dtype=torch.float32)
+        y = torch.tensor(np.array(features_data[timestep])[:, 0])
+        model = MODEL(*args, **kwargs)
+        print("Training for timestep", timestep)
+        model.fit(X, y)
+        models[timestep] = model
+    return models
 
 def load_test_data(interpolated_dir, test = [2023, 2024]):
     test_folders = {}
