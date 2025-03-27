@@ -24,7 +24,7 @@ def load_training_data(interpolated_dir, test = [2023, 2024]):
                                 training_data[row["timestep"]] = [row] 
                             else:
                                 training_data[row["timestep"]] += [row]
-                    break
+                        
             else: 
                 print("skipping ", folder)
     return training_data
@@ -61,7 +61,6 @@ def setup_models_DL(features_data, MODEL, *args, **kwargs):
     '''
     models = {}
     for timestep in features_data:
-        print("HELLO!")
         X = torch.tensor(np.array(features_data[timestep])[:, 1:], dtype=torch.float32)
         y = torch.tensor(np.array(features_data[timestep])[:, 0])
         model = MODEL(*args, **kwargs)
@@ -74,8 +73,8 @@ def load_test_data(interpolated_dir, test = [2023, 2024]):
     test_folders = {}
     for folder in os.listdir(interpolated_dir):
         folder_path = os.path.join(interpolated_dir, folder)
-        print(f"Loading data for {folder}")
         if os.path.isdir(folder_path):
+            print(f"Loading data for {folder}")
             if int(folder) in test:
                 test_data = {}
                 for file in os.listdir(folder_path):
@@ -94,6 +93,7 @@ def load_test_data(interpolated_dir, test = [2023, 2024]):
                             elif row["timestep"] not in seen_timesteps:
                                 seen_timesteps.add(row["timestep"]) 
                                 test_data[file] += [row]
+                    
                 test_folders[folder] = test_data
     return test_folders
 
@@ -118,7 +118,6 @@ def plot(models, X_tests, title=""):
 
     for timestep, i in zip(models, X_tests.keys()):
         model = models[timestep]
-        # MODIFY THIS TO GET TEST DATA
         X_test = np.array(X_tests[i])
         y_test = X_test[:,0]
         X_test = X_test[:,1:]
