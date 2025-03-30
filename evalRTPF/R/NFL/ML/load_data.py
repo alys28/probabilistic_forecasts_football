@@ -10,7 +10,7 @@ def load_game(data_dir, data_file):
     return data
 
 # data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../.."))
-data_dir = "dataset/2023"
+data_dir = "dataset_interpolated/2018"
 # load_game(data_dir, data_file)
 
 def interpolate_data(data, data_dir, data_file, steps=0.005):
@@ -60,7 +60,7 @@ def interpolate_data(data, data_dir, data_file, steps=0.005):
             new_df = pd.concat([new_df, row], ignore_index=True)
 
     # Save the updated file
-    updated_file_path = os.path.join(data_dir, "updated_" + data_file)
+    updated_file_path = os.path.join(data_dir, data_file)
     new_df.to_csv(updated_file_path, index=False)
     print(f"Processed and saved: {updated_file_path}")
 
