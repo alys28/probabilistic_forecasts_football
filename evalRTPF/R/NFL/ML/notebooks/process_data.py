@@ -47,11 +47,21 @@ def feature_selection(data, features):
 def setup_models(features_data, MODEL, *args, **kwargs):
     models = {}
     for timestep in features_data:
-        X = np.array(features_data[timestep])[:, 1:]
-        y = np.array(features_data[timestep])[:, 0]
-        model = MODEL(*args, **kwargs)
+        X = torch.tensor(np.array(features_data[timestep])[:, 1:], dtype=torch.float32)
+        y = torch.tensor(np.array(features_data[timestep])[:, 0], dtype=torch.long)  # Ensure y is LongTensor
+        
+        # Check device (GPU/CPU)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # Initialize and move model to device
+        model = MODEL(*args, **kwargs).to(device)
+        
+        # Move data to the same device
+        X = X.to(device)
+        y = y.to(device)
+
         print("Training for timestep", timestep)
-        model.fit(X, y)
+        model.fit(X, y)  # Fit the model
         models[timestep] = model
     return models
 
