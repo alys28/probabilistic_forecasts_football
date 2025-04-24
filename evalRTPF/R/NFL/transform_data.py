@@ -3,7 +3,7 @@ import numpy as np
 import os
 
 # Directory containing CSV files
-directory = "LR_RF_testing"  # Change this to your actual directory
+directory = "LR_Timeout_testing"  # Change this to your actual directory
 
 # Function to process a CSV file
 def process_csv(file_path, phat_A, phat_b, interpolate = False, steps = 0.01):
@@ -62,5 +62,5 @@ if __name__ == "__main__":
         if filename.endswith(".csv"):
             file_path = os.path.join(directory, filename)
             print(file_path)
-            process_csv(file_path, "phat_b", "random_forest_phat_b", False, 0.005)  # Interpolate with 0.5% steps
+            process_csv(file_path, "homeWinProbability", "phat_b_LR", False, 0.005)  # Interpolate with 0.5% steps
     print("Processing complete for all CSV files in the directory.")

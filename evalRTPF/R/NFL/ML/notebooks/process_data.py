@@ -139,15 +139,18 @@ def write_predictions(models, features_test_data, interpolated_dir, phat_b = "ph
 
             # Precompute rounded timesteps for faster lookup
             df["rounded_timestep"] = df["timestep"].round(3)
-            
+            rows = df.iloc[1:].iterrows()
+            index, row = next(rows)
             for i, timestep in enumerate(models):
                 model = models[timestep]
                 X_test = np.array(test_data[file][i])[1:].reshape(1, -1)
                 pred = model.predict_proba(X_test)[0][1]
-                
-                # Vectorized update
-                df.loc[df["rounded_timestep"] == round(timestep, 3), "phat_b"] = pred
-
+                try:
+                    while round(row["timestep"], 3) == round(timestep, 3):
+                        df.at[index, "phat_b_LR"] = pred
+                        index, row = next(rows)
+                except StopIteration:
+                    pass
             # Save the file once after all updates
             df.drop(columns=["rounded_timestep"], inplace=True)
             df.to_csv(os.path.join(interpolated_dir, folder, file), index=False)
