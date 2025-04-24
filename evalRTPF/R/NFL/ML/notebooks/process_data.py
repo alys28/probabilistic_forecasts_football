@@ -29,7 +29,7 @@ def load_training_data(interpolated_dir, test = [2023, 2024]):
                 print("skipping ", folder)
     return training_data
 
-def feature_selection(data, features):
+def feature_selection(data, features, replace_nan_val = 0):
     # Given the features of the data, return data such that each row is an array of the values of the features
     # The data is a dictionary where the key is the timestep and the value is a list of rows
     feature_data = {}
@@ -37,9 +37,7 @@ def feature_selection(data, features):
         feature_data[timestep] = []
         for row in data[timestep]:
             new_row = [[float(row[feature]) for feature in features]]
-            # First check if the row has any NaN values
-            if any(np.isnan(new_row[0])):
-                continue
+            new_row = [val if not np.isnan(val) else replace_nan_val for val in new_row] 
             feature_data[timestep] += new_row
     return feature_data
 
@@ -47,21 +45,11 @@ def feature_selection(data, features):
 def setup_models(features_data, MODEL, *args, **kwargs):
     models = {}
     for timestep in features_data:
-        X = torch.tensor(np.array(features_data[timestep])[:, 1:], dtype=torch.float32)
-        y = torch.tensor(np.array(features_data[timestep])[:, 0], dtype=torch.long)  # Ensure y is LongTensor
-        
-        # Check device (GPU/CPU)
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
-        # Initialize and move model to device
-        model = MODEL(*args, **kwargs).to(device)
-        
-        # Move data to the same device
-        X = X.to(device)
-        y = y.to(device)
-
+        X = np.array(features_data[timestep])[:,1:]
+        y = np.array(features_data[timestep])[:,0]
+        model = MODEL(*args, **kwargs)
         print("Training for timestep", timestep)
-        model.fit(X, y)  # Fit the model
+        model.fit(X, y)
         models[timestep] = model
     return models
 
@@ -107,7 +95,7 @@ def load_test_data(interpolated_dir, test = [2023, 2024]):
                 test_folders[folder] = test_data
     return test_folders
 
-def test_feature_selection(data, features):
+def test_feature_selection(data, features, replace_nan_val = 0):
     # Given the features of the data, return data such that each row is an array of the values of the features
     # The data is a dictionary where the key is the timestep and the value is a list of rows
     feature_data = {}
@@ -115,9 +103,8 @@ def test_feature_selection(data, features):
         feature_data[file] = []
         for row in data[file]:
             new_row = [[float(row[feature]) for feature in features]]
-            # First check if the row has any NaN values
-            if any(np.isnan(new_row[0])):
-                continue
+            # Replace NaNs in the new_row with replace_nan
+            new_row = [val if not np.isnan(val) else replace_nan_val for val in new_row]
             feature_data[file] += new_row
     return feature_data
 
@@ -146,17 +133,22 @@ def write_predictions(models, features_test_data, interpolated_dir, phat_b = "ph
     for folder in features_test_data:
         print(folder)
         test_data = features_test_data[folder]
+        
         for file in test_data:
             df = pd.read_csv(os.path.join(interpolated_dir, folder, file))
-            for i, timestep in zip(range(len(models)), models):
+
+            # Precompute rounded timesteps for faster lookup
+            df["rounded_timestep"] = df["timestep"].round(3)
+            
+            for i, timestep in enumerate(models):
                 model = models[timestep]
                 X_test = np.array(test_data[file][i])[1:].reshape(1, -1)
-                y_test = np.array(test_data[file][i])[0].reshape(1, -1)
-                pred = model.predict_proba(X_test)
-                # Open the file and add column called phat_b
-                for index, row in df.iloc[1:].iterrows():
-                    # Round timesteps to the nearest 0.005
-                    if round(row["timestep"], 3) == round(timestep, 3):
-                        df.at[index, phat_b] = pred[0][1]
+                pred = model.predict_proba(X_test)[0][1]
+                
+                # Vectorized update
+                df.loc[df["rounded_timestep"] == round(timestep, 3), "phat_b"] = pred
+
+            # Save the file once after all updates
+            df.drop(columns=["rounded_timestep"], inplace=True)
             df.to_csv(os.path.join(interpolated_dir, folder, file), index=False)
             print(f"Finished writing to {file}")

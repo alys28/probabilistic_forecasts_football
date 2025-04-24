@@ -10,7 +10,7 @@ def load_game(data_dir, data_file):
     return data
 
 # data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../.."))
-data_dir = "dataset_interpolated/2018"
+data_dir = "dataset_interpolated/2024"
 # load_game(data_dir, data_file)
 
 def interpolate_data(data, data_dir, data_file, steps=0.005):
