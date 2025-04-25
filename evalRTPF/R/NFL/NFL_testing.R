@@ -20,7 +20,7 @@ L <- function(x, y) {
 
 # Data formatting ---------------------------------------------------------=
 # Define the path to the dataset
-dataset_path <- "/Users/aly/Documents/University of Waterloo/Winter 2025/Research/code/evalRTPF/R/NFL/LR_RF_interpolated_combined_data.csv"
+dataset_path <- "/Users/aly/Documents/University of Waterloo/Winter 2025/Research/code/evalRTPF/R/NFL/LR_Timeout_interpolated_combined_data.csv"
 
 # Load the dataset
 dataset <- read.csv(dataset_path)
@@ -129,7 +129,7 @@ oh <- calc_pval(ZZ, eig = eigg, quan = c(0.90, 0.95, 0.99), n_MC = N_MC)
 temp <- calc_L_s2(df = df_equ, pA = "phat_A", pB = "phat_B")
 print(temp)
 plot_pcb(df = temp)
-
+# write.csv(temp, file = "R/NFL/test_2/LR_Timeout_L2.csv", row.names = FALSE)
 tibble(
   type = ifelse(to_center, "center", "non-center"),
   Z = ZZ,

@@ -51,7 +51,7 @@ def process_csv(file_path, phat_A, phat_b, interpolate = False, steps = 0.01):
             "Y": df["Y"].iloc[0]  # Assuming Y remains constant
         })
         # Save the file
-        interpolated_file_path = os.path.join(directory, "formatted_" + os.path.basename(file_path))
+        interpolated_file_path = os.path.join(directory, os.path.basename(file_path))
         interpolated_df.to_csv(interpolated_file_path, index=False)
         print(f"Processed and saved: {interpolated_file_path}")
 
