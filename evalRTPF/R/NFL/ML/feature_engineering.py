@@ -219,6 +219,19 @@ def delete_overtime_files(directory):
         print("Deleted files:")
         for file in deleted_files:
             print(f"- {file}")
+
+def ignore_overtime_periods(directory):
+    """Delete overtime periods from all CSV files in a directory"""
+    deleted_files = []
+    for filename in os.listdir(directory):
+        if filename.endswith('.csv'):
+            file_path = os.path.join(directory, filename)
+            if has_overtime(file_path):
+                 df = df[df["period.number"] <= 4]
+                 print(f"Deleted overtime periods from {filename}")
+                 df.to_csv(file_path, index=False)
+    print(f"Deleted overtime periods from {len(deleted_files)} files")
+
 if __name__ == "__main__": 
     team_dict = {
     '22': ['ARI', 'ARZ'],
@@ -267,4 +280,4 @@ if __name__ == "__main__":
     # print("FINAL:", abbr)
     directory = "dataset_interpolated/2024"
     delete_overtime_files(directory)
-    process_directory(directory, team_dict)
+    # process_directory(directory, team_dict)
