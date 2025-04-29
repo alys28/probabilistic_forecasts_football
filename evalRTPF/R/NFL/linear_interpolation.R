@@ -2,8 +2,13 @@ library(dplyr)
 library(tidyr)
 library(purrr)
 
+# TO CHANGE:
+# - csv_dir
+# - output_csv
+
+
 # Directory containing the CSV files
-csv_dir <- "/Users/aly/Documents/University of Waterloo/Winter 2025/Research/code/evalRTPF/R/NFL/test_2/LR_Timeout_testing"
+csv_dir <- "/Users/aly/Documents/University_of_Waterloo/Winter 2025/Research/code/evalRTPF/R/NFL/test_2/RF_Timeout_testing"
 
 # List of CSV files
 csv_files <- list.files(csv_dir, pattern = "*.csv", full.names = TRUE)
@@ -14,7 +19,7 @@ game_data_list <- lapply(csv_files, read.csv)
 combined_data <- bind_rows(game_data_list)
 
 # Save the combined data to a CSV file
-output_csv <- "/Users/aly/Documents/University of Waterloo/Winter 2025/Research/code/evalRTPF/R/NFL/LR_Timeout_interpolated_combined_data.csv"
+output_csv <- "/Users/aly/Documents/University_of_Waterloo/Winter 2025/Research/code/evalRTPF/R/NFL/RF_Timeout_interpolated_combined_data.csv"
 write.csv(combined_data, output_csv, row.names = FALSE)
 
 # View the combined data
