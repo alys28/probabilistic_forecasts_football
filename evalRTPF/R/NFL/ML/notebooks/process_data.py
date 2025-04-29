@@ -103,10 +103,10 @@ def test_feature_selection(data, features, replace_nan_val = 0):
     for file in data:
         feature_data[file] = []
         for row in data[file]:
-            new_row = [[float(row[feature]) for feature in features]]
-            # Replace NaNs in the new_row with replace_nan
-            new_row = [val if not np.isnan(val) else replace_nan_val for val in new_row]
-            feature_data[file] += new_row
+            new_row = [float(row[feature]) for feature in features]
+            # First check if the row has any NaN values
+            new_row = [val if not np.isnan(val) else replace_nan_val for val in new_row] 
+            feature_data[file].append(new_row)
     return feature_data
 
 def plot(models, X_tests, title=""):
@@ -148,7 +148,7 @@ def write_predictions(models, features_test_data, interpolated_dir, phat_b = "ph
                 pred = model.predict_proba(X_test)[0][1]
                 try:
                     while round(row["timestep"], 3) == round(timestep, 3):
-                        df.at[index, "phat_b_LR"] = pred
+                        df.at[index, phat_b] = pred
                         index, row = next(rows)
                 except StopIteration:
                     pass
