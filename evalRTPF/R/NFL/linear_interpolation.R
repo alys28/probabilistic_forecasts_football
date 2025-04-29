@@ -3,7 +3,7 @@ library(tidyr)
 library(purrr)
 
 # Directory containing the CSV files
-csv_dir <- "/Users/aly/Documents/University of Waterloo/Winter 2025/Research/code/evalRTPF/R/NFL/LR_Timeout_testing"
+csv_dir <- "/Users/aly/Documents/University of Waterloo/Winter 2025/Research/code/evalRTPF/R/NFL/test_2/LR_Timeout_testing"
 
 # List of CSV files
 csv_files <- list.files(csv_dir, pattern = "*.csv", full.names = TRUE)

@@ -36,9 +36,10 @@ def feature_selection(data, features, replace_nan_val = 0):
     for timestep in data:
         feature_data[timestep] = []
         for row in data[timestep]:
-            new_row = [[float(row[feature]) for feature in features]]
+            new_row = [float(row[feature]) for feature in features]
+            # First check if the row has any NaN values
             new_row = [val if not np.isnan(val) else replace_nan_val for val in new_row] 
-            feature_data[timestep] += new_row
+            feature_data[timestep].append(new_row)
     return feature_data
 
 

@@ -3,7 +3,7 @@ import numpy as np
 import os
 
 # Directory containing CSV files
-directory = "LR_Timeout_testing"  # Change this to your actual directory
+directory = "test_2/LR_Timeout_testing"  # Change this to your actual directory
 
 # Function to process a CSV file
 def process_csv(file_path, phat_A, phat_b, interpolate = False, steps = 0.01):
