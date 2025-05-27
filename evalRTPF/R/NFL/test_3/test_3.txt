@@ -1,1 +1,30 @@
 Testing Kernel Based Methods
+
+1.
+Logistic Regression with Normalization
+numeric_features = ["score_difference", "type.id", "end.down", "end.yardsToEndzone", "end.distance",
+  "field_position_shift"
+]
+other_features = ["relative_strength", "scoringPlay", "home_has_possession", "home_timeouts_left", "away_timeouts_left"] # for timestep in training_data.keys():
+
+features = ["home_win"] + numeric_features + other_features
+
+# Scale the data pipeline
+preprocessor = ColumnTransformer(transformers=[
+    ("num", StandardScaler(), numeric_features),
+    ("passthrough", "passthrough", other_features)
+])
+
+2.
+numeric_features = [
+    "homeScore", "awayScore", "start.down", "start.distance", "start.yardLine",
+    "end.down", "end.distance", "end.yardLine",
+]
+other_features = ["relative_strength", "scoringPlay", "home_has_possession", "home_timeouts_left", "away_timeouts_left"] # for timestep in training_data.keys():
+
+features = ["home_win"] + numeric_features + other_features
+
+
+
+
+XGBoost

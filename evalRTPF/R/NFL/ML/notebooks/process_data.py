@@ -68,17 +68,16 @@ def setup_models_DL(features_data, MODEL, *args, **kwargs):
         models[timestep] = model
     return models
 
-def load_test_data(interpolated_dir, test = [2023, 2024]):
-    test_folders = {}
+def load_training_data(interpolated_dir, test = [2023, 2024]):
+    training_data = {}
+    print("Reload works!")
     for folder in os.listdir(interpolated_dir):
         folder_path = os.path.join(interpolated_dir, folder)
+        print(f"Loading data for {folder}")
         if os.path.isdir(folder_path):
-            print(f"Loading data for {folder}")
-            if int(folder) in test:
-                test_data = {}
+            if not(int(folder) in test):
                 for file in os.listdir(folder_path):
                     if file.endswith(".csv"):
-                        seen_timesteps = set()
                         file_path = os.path.join(folder_path, file)
                         df = pd.read_csv(file_path)
                         for _, row in df.iloc[1:].iterrows():
@@ -86,15 +85,13 @@ def load_test_data(interpolated_dir, test = [2023, 2024]):
                             row["away_team_id"] = df.iloc[0]["away_team_id"]
                             row["home_team_id"] = df.iloc[0]["home_team_id"]
                             row["home_win"] = df.iloc[0]["home_win"]
-                            if file not in test_data and row["timestep"] not in seen_timesteps:
-                                seen_timesteps.add(row["timestep"])
-                                test_data[file] = [row] 
-                            elif row["timestep"] not in seen_timesteps:
-                                seen_timesteps.add(row["timestep"]) 
-                                test_data[file] += [row]
-                    
-                test_folders[folder] = test_data
-    return test_folders
+                            if row["timestep"] not in training_data:
+                                training_data[row["timestep"]] = [row] 
+                            else:
+                                training_data[row["timestep"]] += [row]
+            else: 
+                print("skipping ", folder)
+    return training_data
 
 def test_feature_selection(data, features, replace_nan_val = 0):
     # Given the features of the data, return data such that each row is an array of the values of the features

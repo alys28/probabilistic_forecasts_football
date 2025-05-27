@@ -1,2 +1,4 @@
 Features used:
 features = ["home_win", "relative_strength", "score_difference", "type.id", "home_has_possession", "end.down", "end.yardsToEndzone", "end.distance", "field_position_shift", "home_timeouts_left", "away_timeouts_left"]
+features_2 = ["home_win", "relative_strength", "homeScore", "awayScore", "scoringPlay", "start.down", "start.distance", "start.yardLine", "end.down", "end.distance", "end.yardLine", "home_timeouts_left", "away_timeouts_left", "home_has_possession"]
+

@@ -20,12 +20,12 @@ L <- function(x, y) {
 
 
 # TO CHANGE
-# - dataset_path
-# - CSV File write
+# - dataset_path (CHANGE test #)
+# - CSV File write (CHANGE test #)
 
 # Data formatting ---------------------------------------------------------=
 # Define the path to the dataset
-dataset_path <- "/Users/aly/Documents/University_of_Waterloo/Winter 2025/Research/code/evalRTPF/R/NFL/test_2/RF_Timeout_interpolated_combined_data.csv"
+dataset_path <- "/Users/aly/Documents/University_of_Waterloo/Winter 2025/Research/code/evalRTPF/R/NFL/test_2/RF_2_Timeout_interpolated_combined_data.csv"
 
 # Load the dataset
 dataset <- read.csv(dataset_path)
@@ -134,8 +134,8 @@ oh <- calc_pval(ZZ, eig = eigg, quan = c(0.90, 0.95, 0.99), n_MC = N_MC)
 temp <- calc_L_s2(df = df_equ, pA = "phat_A", pB = "phat_B")
 print(temp)
 plot_pcb(df = temp)
-write.csv(temp, file = "R/NFL/test_2/RF_Timeout_L2.csv", row.names = FALSE)
-tibble(
+write.csv(temp, file = "R/NFL/test_2/RF_2_Timeout_L2.csv", row.names = FALSE) # TO CHANGE
+x = tibble(
   type = ifelse(to_center, "center", "non-center"),
   Z = ZZ,
   pval = oh$p_val,
@@ -143,3 +143,6 @@ tibble(
   "95%" = oh$quantile[2],
   "99%" = oh$quantile[3]
 )
+write.csv(x, file="R/NFL/test_2/RF_2_Timeout_pval.csv")
+
+
