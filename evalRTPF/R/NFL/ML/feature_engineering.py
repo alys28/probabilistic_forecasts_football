@@ -67,7 +67,8 @@ def add_timeouts(df, team_dict=None):
                             else:
                                 away_timeouts -= 1
                             abbr_found = True
-                            can_break
+                            can_break = True
+                            break
                     if can_break:
                         break
                 if not(abbr_found):
@@ -227,10 +228,11 @@ def ignore_overtime_periods(directory):
         if filename.endswith('.csv'):
             file_path = os.path.join(directory, filename)
             if has_overtime(file_path):
-                 df = df[df["period.number"] <= 4]
-                 print(f"Deleted overtime periods from {filename}")
-                 deleted_files.append(filename)
-                 df.to_csv(file_path, index=False)
+                df = pd.read_csv(file_path)
+                df = df[df["period.number"] <= 4]
+                df.to_csv(file_path, index=False)
+                deleted_files.append(filename)
+                print(f"Deleted overtime periods from {filename}")
     print(f"Deleted overtime periods from {len(deleted_files)} files")
 
 if __name__ == "__main__": 
