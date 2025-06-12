@@ -2,7 +2,7 @@ import numpy as np
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from siamese_network import SiameseClassifier, SiameseNetwork
+from siamese_network import SiameseClassifier, SiameseNetwork, ContrastiveLoss
 from notebooks import process_data
 import torch
 import torch.nn as nn
@@ -45,12 +45,17 @@ def setup_models(features_data, num_models = 20, epochs = 100, lr = 0.001, batch
             if timestep[0] >= timesteps_range[0] and timestep[1] < timesteps_range[1]:
                 X.append(np.array(features_data[timestep])[:,1:])
                 y.append(np.array(features_data[timestep])[:,0])
+        
+        if len(X) == 0 or len(y) == 0:
+            print(f"No data for timestep range {timesteps_range}, skipping...")
+            continue
+            
         X = np.array(X)
         y = np.array(y)
         print("Training for timestep", timesteps_range)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         siamese_network = SiameseNetwork(len(features) - 1, hidden_dim)
-        criterion = nn.BCELoss()
+        criterion = ContrastiveLoss(margin=1.0)
         optimizer = torch.optim.Adam(siamese_network.parameters(), lr=lr)
         siamese_classifier = SiameseClassifier(siamese_network, epochs, optimizer, criterion, device)
         siamese_classifier.fit(X, y, val_X = None, val_y = None, batch_size = batch_size)

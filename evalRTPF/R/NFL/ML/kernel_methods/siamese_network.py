@@ -4,6 +4,19 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 
 
+class ContrastiveLoss(nn.Module):
+    def __init__(self, margin=1.0):
+        super(ContrastiveLoss, self).__init__()
+        self.margin = margin
+
+    def forward(self, output1, output2, label):
+        # label: 1 if similar, 0 if dissimilar
+        euclidean_distance = torch.sqrt(torch.sum((output1 - output2) ** 2, dim=1))
+        loss = (label) * torch.pow(euclidean_distance, 2) + \
+               (1 - label) * torch.pow(torch.clamp(self.margin - euclidean_distance, min=0.0), 2)
+        return loss.mean()
+
+
 class NFLDataset(Dataset):
     def __init__(self, data_x, data_y):
         self.data_x = data_x
@@ -29,18 +42,22 @@ class NFLDataset(Dataset):
 
 
 class SiameseNetwork(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim = 1):
+    def __init__(self, input_dim, hidden_dim, output_dim=64):
         super(SiameseNetwork, self).__init__()
         self.fc1 = nn.Linear(input_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, output_dim)
 
-    def forward(self, x1, x2):
-        x1 = F.relu(self.fc1(x1))
-        x2 = F.relu(self.fc1(x2))
-        x = F.cosine_similarity(x1, x2, dim=1)
-        # Rescale to 0-1
-        x = (x + 1) / 2
+    def forward_one(self, x):
+        """Forward pass for one input"""
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
         return x
+
+    def forward(self, x1, x2):
+        """Forward pass for both inputs, returns embeddings"""
+        output1 = self.forward_one(x1)
+        output2 = self.forward_one(x2)
+        return output1, output2
 
 
 
@@ -53,13 +70,16 @@ def train_siamese_network(model, train_loader, epochs, optimizer, criterion, dev
             x1, x2, y = batch
             x1, x2, y = x1.to(device), x2.to(device), y.to(device)
             optimizer.zero_grad()
-            outputs = model(x1, x2)
-            loss = criterion(outputs, y)
+            output1, output2 = model(x1, x2)
+            loss = criterion(output1, output2, y)
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-            # Count the number of correct predictions
-            count += (outputs.round() == y).float().sum()
+            # Count the number of correct predictions based on distance threshold
+            with torch.no_grad():
+                distances = torch.sqrt(torch.sum((output1 - output2) ** 2, dim=1))
+                predictions = (distances < 0.5).float()  # Threshold for similarity
+                count += (predictions == y).float().sum()
         print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss / len(train_loader)}, Accuracy: {count / len(train_loader)}")
         if val_loader is not None:
             val_loss, val_accuracy = evaluate_siamese_network(model, val_loader, criterion, device)
@@ -73,11 +93,13 @@ def evaluate_siamese_network(model, test_loader, criterion, device):
         for batch in test_loader:
             x1, x2, y = batch
             x1, x2, y = x1.to(device), x2.to(device), y.to(device)
-            outputs = model(x1, x2)
-            loss = criterion(outputs, y)
+            output1, output2 = model(x1, x2)
+            loss = criterion(output1, output2, y)
             total_loss += loss.item()
-            # Count the number of correct predictions
-            count += (outputs.round() == y).float().sum()
+            # Count the number of correct predictions based on distance threshold
+            distances = torch.sqrt(torch.sum((output1 - output2) ** 2, dim=1))
+            predictions = (distances < 0.5).float()  # Threshold for similarity
+            count += (predictions == y).float().sum()
     return total_loss / len(test_loader), count / len(test_loader)
 
 class SiameseClassifier:
@@ -111,7 +133,12 @@ class SiameseClassifier:
 
     def predict(self, x1, x2):
         """
-        Predicts the class of the data.
+        Predicts the similarity between two inputs based on embedding distance.
+        Returns distance (lower = more similar).
         """
-        return self.model(x1, x2)
+        self.model.eval()
+        with torch.no_grad():
+            output1, output2 = self.model(x1, x2)
+            distance = torch.sqrt(torch.sum((output1 - output2) ** 2, dim=1))
+            return distance
 
