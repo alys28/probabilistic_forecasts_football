@@ -153,7 +153,7 @@ def getHomeWinProbabilities(game_id: str) -> List[Dict[str, Any]]:
 
 
 if __name__ == "__main__":
-    years = [2025]
+    years = [2015]
     for year in years:
         matches = getIDs(year)
         print(f"Found {len(matches)} unique matches for year {year}")
@@ -162,7 +162,11 @@ if __name__ == "__main__":
             match_id, home_win, home_team_id, away_team_id  = match
             try:
                 play_by_play_data = getPlayByPlay(match_id)
-                probabilities = getHomeWinProbabilities(match_id)
+                try:
+                    probabilities = getHomeWinProbabilities(match_id)
+                except Exception as e:
+                    print(f"Failed to fetch win probabilities for game {match_id}, using default value of 0")
+                    probabilities = [{"sequenceNumber": 0, "homeWinProbability": 0}]
                 merged_array = [{**d1, **d2} for d1, d2 in zip(play_by_play_data, probabilities[1:])]
                 save_game(match_id, [{"home_team_id": home_team_id, "away_team_id": away_team_id, "home_win": home_win} | probabilities[0]] + merged_array, f"data/{year}")
             except Exception as e:

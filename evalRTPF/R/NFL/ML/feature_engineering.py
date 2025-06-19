@@ -156,6 +156,7 @@ def process_file(file_path, team_dict):
     df = add_possession_bool(df)
     df = add_time_left_in_seconds_for_period(df)
     df = add_field_position_shift(df)
+    df = add_final_score_difference(df)
     
     # Overwrite the original file
     df.to_csv(file_path, index=False)
@@ -234,6 +235,21 @@ def ignore_overtime_periods(directory):
                 deleted_files.append(filename)
                 print(f"Deleted overtime periods from {filename}")
     print(f"Deleted overtime periods from {len(deleted_files)} files")
+
+
+def add_final_score_difference(df):
+    '''
+    Adds a column for final score difference. A positive SD means home team is winning.
+    Skips the first row (header row).
+    '''
+    last_row = df.iloc[-1]
+    final_score_diff = [None]  # None for header row
+    for idx in range(1, len(df)):
+        row = df.iloc[idx]
+        final_score_diff.append(last_row['homeScore'] - last_row['awayScore'])
+    df['final_score_difference'] = final_score_diff
+    return df
+
 
 if __name__ == "__main__": 
     team_dict = {

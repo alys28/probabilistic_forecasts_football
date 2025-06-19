@@ -2,62 +2,58 @@ import numpy as np
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from siamese_network import SiameseClassifier, SiameseNetwork, ContrastiveLoss
+from kernel_methods.siamese_network import SiameseClassifier, SiameseNetwork, ContrastiveLoss
 from notebooks import process_data
 import torch
 import torch.nn as nn
-
-parent_dir = os.path.abspath(os.path.join(os.getcwd(), ".."))
-sys.path.append(parent_dir)
-
-interpolated_dir = os.path.join(parent_dir, "dataset_interpolated_with_overtime")
-training_data = process_data.load_training_data(interpolated_dir)
-features = ["home_win", "relative_strength", "homeScore", "awayScore", "scoringPlay", "start.down", "start.distance", "start.yardLine", "end.down", "end.distance", "end.yardLine", "home_timeouts_left", "away_timeouts_left", "home_has_possession"]
-
-count = 0
-for timestep in training_data.keys():
-    rows = training_data[timestep]
-    
-    # Replace NaN values with 0
-    for row in rows:
-        for feature in features:
-            if np.isnan(row[feature]):
-                count += 1
-                row[feature] = 0
-
-print("Number of NaN values:", count)
-
-features_data = process_data.feature_selection(training_data, features)
+from sklearn.model_selection import train_test_split
 
 
-
-def setup_models(features_data, num_models = 20, epochs = 100, lr = 0.001, batch_size = 128, hidden_dim = 100):
+def setup_models(features_data, features, num_models = 10, epochs = 100, lr = 0.0001, batch_size = 128, hidden_dim = 128):
     """
     Setup models for each timestep range.
     """
     # Setup models for each timestep range
     models = []
     for i in range(num_models):
-        timesteps_range = [i/num_models, (i+1)/num_models]
+        timesteps_range = [0.97, 1]
         X = []
         y = []
         for timestep in features_data:
-            if timestep[0] >= timesteps_range[0] and timestep[1] < timesteps_range[1]:
-                X.append(np.array(features_data[timestep])[:,1:])
-                y.append(np.array(features_data[timestep])[:,0])
-        
+            if timestep >= timesteps_range[0] and timestep < timesteps_range[1]:
+                X.extend(np.array(features_data[timestep])[:,2:])
+                y.extend(np.array(features_data[timestep])[:,1])
+        X = np.array(X)
+        y = np.array(y).reshape(-1, 1)
         if len(X) == 0 or len(y) == 0:
             print(f"No data for timestep range {timesteps_range}, skipping...")
             continue
+        
+        # Split data: 80% training, 20% validation
+        X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y) # Stratify by y to ensure equal distribution of classes in both sets
+        print(f"Training set shape: {X_train.shape}, Validation set shape: {X_val.shape}")
             
-        X = np.array(X)
-        y = np.array(y)
+        # Concatenate all data points from different timesteps in this range
         print("Training for timestep", timesteps_range)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        siamese_network = SiameseNetwork(len(features) - 1, hidden_dim)
+        
+        # Debug: Print the actual input dimension being used
+        actual_input_dim = X_train.shape[1]
+        expected_input_dim = len(features) - 2
+        print(f"Actual input dimension: {actual_input_dim}")
+        print(f"Expected input dimension: {expected_input_dim}")
+        
+        # Use the actual input dimension instead of len(features) - 1
+        siamese_network = SiameseNetwork(actual_input_dim, hidden_dim)
         criterion = ContrastiveLoss(margin=1.0)
         optimizer = torch.optim.Adam(siamese_network.parameters(), lr=lr)
         siamese_classifier = SiameseClassifier(siamese_network, epochs, optimizer, criterion, device)
-        siamese_classifier.fit(X, y, val_X = None, val_y = None, batch_size = batch_size)
+        
+        # Since we remove the first column ([:,1:]), the score difference index is reduced by 1
+        # If score difference was originally at index 1, it's now at index 0
+        score_diff_index = 0  # Adjust this if your score difference is at a different position
+        
+        siamese_classifier.fit(X_train, y_train, val_X = X_val, val_y = y_val, batch_size = batch_size, score_difference_index = score_diff_index)
         models.append(siamese_classifier)
+        break
     return models
