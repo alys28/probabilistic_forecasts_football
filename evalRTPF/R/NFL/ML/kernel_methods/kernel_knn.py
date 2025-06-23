@@ -7,53 +7,63 @@ from notebooks import process_data
 import torch
 import torch.nn as nn
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 
-def setup_models(features_data, features, num_models = 10, epochs = 100, lr = 0.0001, batch_size = 128, hidden_dim = 128):
+def setup_models(training_data, test_data, num_models = 20, epochs = 10, lr = 0.0001, batch_size = 128, hidden_dim = 32):
     """
-    Setup models for each timestep range.
+    Setup models for each timestep range with normalization pipeline.
     """
     # Setup models for each timestep range
     models = []
-    for i in range(num_models):
-        timesteps_range = [0.97, 1]
+    for i in range(199, num_models):
+        # Divide [0, 1] into num_models equal ranges
+        range_size = 1.0 / num_models
+        start_time = i * range_size
+        end_time = (i + 1) * range_size
+        timesteps_range = [start_time, end_time]
         X = []
         y = []
-        for timestep in features_data:
+        X_test = []
+        y_test = []
+        for timestep in training_data:
             if timestep >= timesteps_range[0] and timestep < timesteps_range[1]:
-                X.extend(np.array(features_data[timestep])[:,2:])
-                y.extend(np.array(features_data[timestep])[:,1])
-        X = np.array(X)
-        y = np.array(y).reshape(-1, 1)
+                for row in training_data[timestep]:
+                    X.append(np.array(row['rows'], dtype=np.float32))
+                    y.append(np.array(row['label'], dtype=np.float32))
+        for timestep in test_data:
+            if timestep >= timesteps_range[0] and timestep < timesteps_range[1]:
+                for row in test_data[timestep]:
+                    X_test.append(np.array(row['rows'], dtype=np.float32))
+                    y_test.append(np.array(row['label'], dtype=np.float32))
+        X_train = np.array(X, dtype=np.float32)
+        y_train = np.array(y, dtype=np.float32).reshape(-1, 1)
+        X_test = np.array(X_test, dtype=np.float32)
+        y_test = np.array(y_test, dtype=np.float32).reshape(-1, 1)
         if len(X) == 0 or len(y) == 0:
             print(f"No data for timestep range {timesteps_range}, skipping...")
             continue
-        
         # Split data: 80% training, 20% validation
-        X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y) # Stratify by y to ensure equal distribution of classes in both sets
-        print(f"Training set shape: {X_train.shape}, Validation set shape: {X_val.shape}")
+        print(f"Training set shape: {X_train.shape}, Validation set shape: {X_test.shape}")
             
         # Concatenate all data points from different timesteps in this range
         print("Training for timestep", timesteps_range)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
         # Debug: Print the actual input dimension being used
-        actual_input_dim = X_train.shape[1]
-        expected_input_dim = len(features) - 2
-        print(f"Actual input dimension: {actual_input_dim}")
-        print(f"Expected input dimension: {expected_input_dim}")
-        
+        actual_input_dim = X_train.shape[-1]
+        print(f"Actual input dimension: {actual_input_dim}")        
         # Use the actual input dimension instead of len(features) - 1
         siamese_network = SiameseNetwork(actual_input_dim, hidden_dim)
-        criterion = ContrastiveLoss(margin=1.0)
-        optimizer = torch.optim.Adam(siamese_network.parameters(), lr=lr)
-        siamese_classifier = SiameseClassifier(siamese_network, epochs, optimizer, criterion, device)
+        criterion = ContrastiveLoss(margin=2.0)  # Increase margin for better separation
+        optimizer = torch.optim.AdamW(siamese_network.parameters(), lr=lr, weight_decay=0.01)  # Use AdamW with weight decay
         
-        # Since we remove the first column ([:,1:]), the score difference index is reduced by 1
-        # If score difference was originally at index 1, it's now at index 0
-        score_diff_index = 0  # Adjust this if your score difference is at a different position
+        # Add learning rate scheduler
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=10)
         
-        siamese_classifier.fit(X_train, y_train, val_X = X_val, val_y = y_val, batch_size = batch_size, score_difference_index = score_diff_index)
+        siamese_classifier = SiameseClassifier(siamese_network, epochs, optimizer, criterion, device, scheduler)
+        
+        siamese_classifier.fit(X_train, y_train, val_X = X_test, val_y = y_test, batch_size = batch_size)
         models.append(siamese_classifier)
-        break
+        
     return models

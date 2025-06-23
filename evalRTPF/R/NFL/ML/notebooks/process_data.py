@@ -3,27 +3,35 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
+from collections import defaultdict
 
-def load_training_data(interpolated_dir, test = [2023, 2024]):
-    training_data = {}
+def load_data(interpolated_dir, years, history_length, features, label_feature, replace_nan_val = 0):
+    training_data = defaultdict(list)
     for folder in os.listdir(interpolated_dir):
         folder_path = os.path.join(interpolated_dir, folder)
         print(f"Loading data for {folder}")
         if os.path.isdir(folder_path):
-            if not(int(folder) in test):
+            if (int(folder) in years):
                 for file in os.listdir(folder_path):
                     if file.endswith(".csv"):
                         file_path = os.path.join(folder_path, file)
                         df = pd.read_csv(file_path)
-                        for _, row in df.iloc[1:].iterrows():
-                            row["relative_strength"] = df.iloc[0]["homeWinProbability"]
-                            row["away_team_id"] = df.iloc[0]["away_team_id"]
-                            row["home_team_id"] = df.iloc[0]["home_team_id"]
-                            row["home_win"] = df.iloc[0]["home_win"]
-                            if row["timestep"] not in training_data:
-                                training_data[row["timestep"]] = [row] 
-                            else:
-                                training_data[row["timestep"]] += [row]
+                        df.loc[1:, "relative_strength"] = df.iloc[0]["homeWinProbability"]
+                        df.loc[1:, "away_team_id"] = df.iloc[0]["away_team_id"]
+                        df.loc[1:, "home_team_id"] = df.iloc[0]["home_team_id"]
+                        df.loc[1:, "home_win"] = df.iloc[0]["home_win"]
+                        for idx in range(1, len(df)):
+                            current_row = df.iloc[idx]
+                            current_row_np = current_row[features].to_numpy().reshape(1, -1)
+                            start_idx = max(1, idx - history_length)
+                            actual_history_len = idx - start_idx
+                            history_rows = df.iloc[start_idx:idx][features].to_numpy(dtype=np.float32)
+                            label = current_row[label_feature]
+                            if actual_history_len < history_length:
+                                padding = np.zeros((history_length - actual_history_len, len(features)))
+                                history_rows = np.concatenate([padding, history_rows], axis=0)
+                            final_rows_for_timestep = np.concatenate([history_rows, current_row_np], axis=0)
+                            training_data[current_row["timestep"]].append({"rows": final_rows_for_timestep, "label": label})
                         
             else: 
                 print("skipping ", folder)
@@ -101,6 +109,7 @@ def load_test_data(interpolated_dir, test = [2023, 2024]):
                                 test_data[file] += [row]
                 test_folders[folder] = test_data
     return test_folders
+
 def test_feature_selection(data, features, replace_nan_val = 0):
     # Given the features of the data, return data such that each row is an array of the values of the features
     # The data is a dictionary where the key is the timestep and the value is a list of rows
