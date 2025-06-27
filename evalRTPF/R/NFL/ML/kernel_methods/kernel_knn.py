@@ -10,13 +10,13 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 
-def setup_models(training_data, test_data, num_models = 20, epochs = 10, lr = 0.0001, batch_size = 128, hidden_dim = 32):
+def setup_models(training_data, test_data, num_models = 20, epochs = 50, lr = 0.00005, batch_size = 64, hidden_dim = 48):
     """
     Setup models for each timestep range with normalization pipeline.
     """
     # Setup models for each timestep range
     models = []
-    for i in range(199, num_models):
+    for i in range(num_models):  # Quick test on one timestep first
         # Divide [0, 1] into num_models equal ranges
         range_size = 1.0 / num_models
         start_time = i * range_size
@@ -43,6 +43,24 @@ def setup_models(training_data, test_data, num_models = 20, epochs = 10, lr = 0.
         if len(X) == 0 or len(y) == 0:
             print(f"No data for timestep range {timesteps_range}, skipping...")
             continue
+        
+        # Normalize 3D data (batch_size, seq_len, input_dim)
+        # Reshape to 2D for normalization: (batch_size * seq_len, input_dim)
+        original_train_shape = X_train.shape
+        original_test_shape = X_test.shape
+        
+        X_train_2d = X_train.reshape(-1, X_train.shape[-1])
+        X_test_2d = X_test.reshape(-1, X_test.shape[-1])
+        
+        # Fit scaler on training data and transform both train and test
+        scaler = StandardScaler()
+        X_train_normalized_2d = scaler.fit_transform(X_train_2d)
+        X_test_normalized_2d = scaler.transform(X_test_2d)
+        
+        # Reshape back to original 3D structure
+        X_train = X_train_normalized_2d.reshape(original_train_shape)
+        X_test = X_test_normalized_2d.reshape(original_test_shape)
+        
         # Split data: 80% training, 20% validation
         print(f"Training set shape: {X_train.shape}, Validation set shape: {X_test.shape}")
             
@@ -55,14 +73,15 @@ def setup_models(training_data, test_data, num_models = 20, epochs = 10, lr = 0.
         print(f"Actual input dimension: {actual_input_dim}")        
         # Use the actual input dimension instead of len(features) - 1
         siamese_network = SiameseNetwork(actual_input_dim, hidden_dim)
-        criterion = ContrastiveLoss(margin=2.0)  # Increase margin for better separation
-        optimizer = torch.optim.AdamW(siamese_network.parameters(), lr=lr, weight_decay=0.01)  # Use AdamW with weight decay
+        criterion = ContrastiveLoss(margin=1.0)  # Balanced margin
+        optimizer = torch.optim.AdamW(siamese_network.parameters(), lr=lr, weight_decay=0.05)  # Moderate regularization
         
-        # Add learning rate scheduler
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=10)
+        # Add learning rate scheduler - more patience for learning
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
         
         siamese_classifier = SiameseClassifier(siamese_network, epochs, optimizer, criterion, device, scheduler)
         
+        # Reduce pairs per sample to prevent overfitting
         siamese_classifier.fit(X_train, y_train, val_X = X_test, val_y = y_test, batch_size = batch_size)
         models.append(siamese_classifier)
         

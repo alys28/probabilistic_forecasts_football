@@ -26,27 +26,52 @@ class NFLDataset(Dataset):
         self.data_y = torch.LongTensor(data_y)
         self.pairs = []
         
-        # Create broader category mapping for each sample
-        def get_broad_category(score_diff):
-            if score_diff > 0:
-                return "win"
-            else:
-                return "loss"
-            # if score_diff <= -7:
-            #     return "far_loss"  # Big loss or Moderate loss
-            # elif score_diff < 0:
-            #     return "close_loss"  # Close loss or Very close loss
-            # elif score_diff == 0:
-            #     return "tie"  # Tie game
-            # elif score_diff <= 7:
-            #     return "close_win"  # Very close win or Close win
-            # else:
-            #     return "far_win"  # Moderate win or Big win
+        # Simple game flow analysis using actual features
+        def get_game_pattern(game_sequence, final_score_diff):
+            try:
+                # Extract score_difference column (assuming it's index 0)
+                if torch.is_tensor(game_sequence):
+                    score_progression = game_sequence[:, 0].numpy()  # score_difference over time
+                else:
+                    score_progression = np.array(game_sequence)[:, 0]
+                
+                # Analyze how the score changed throughout the game
+                early_score = score_progression[:len(score_progression)//3].mean()  # First third
+                late_score = score_progression[-len(score_progression)//3:].mean()   # Last third
+                
+                final_margin = abs(final_score_diff)
+                
+                # Simple patterns based on score progression + final outcome:
+                
+                # Pattern 1: Close games (final margin <= 7)
+                if final_margin <= 7:
+                    return "close_game"
+                
+                # Pattern 2: Early lead held (similar early/late scores, big final margin)
+                elif abs(early_score - late_score) < 7 and final_margin > 14:
+                    return "wire_to_wire"
+                
+                # Pattern 3: Momentum shift (big difference between early/late scores)  
+                elif abs(early_score - late_score) > 10:
+                    return "momentum_shift"
+                
+                # Pattern 4: Standard blowout (big final margin)
+                else:
+                    return "blowout"
+                    
+            except:
+                # Fallback to simple margin-based
+                final_margin = abs(final_score_diff)
+                if final_margin <= 7:
+                    return "close_game"
+                else:
+                    return "blowout"
         
-        # Group samples by broad category
+        # Group samples by game pattern
         category_groups = {}
         for i, y in enumerate(self.data_y):
-            cat = get_broad_category(y.item())
+            game_seq = self.data_x[i]
+            cat = get_game_pattern(game_seq, y.item())
             if cat not in category_groups:
                 category_groups[cat] = []
             category_groups[cat].append(i)
@@ -55,7 +80,8 @@ class NFLDataset(Dataset):
         random.seed(42)  # For reproducibility
         
         for i in range(len(self.data_x)):
-            current_cat = get_broad_category(self.data_y[i].item())
+            game_seq = self.data_x[i]
+            current_cat = get_game_pattern(game_seq, self.data_y[i].item())
             pairs_created = 0
             
             # Create positive pairs (same broad category only)
@@ -104,28 +130,53 @@ class NFLDataset(Dataset):
         score_diff_1 = y1.item()
         score_diff_2 = y2.item()
         
-        # Broad category approach: group by outcome type
-        def get_broad_category(score_diff):
-            if score_diff > 0:
-                return "win"
-            else:
-                return "loss"
-            # if score_diff <= -7:
-            #     return "far_loss"  # Big loss or Moderate loss
-            # elif score_diff < 0:
-            #     return "close_loss"  # Close loss or Very close loss
-            # elif score_diff == 0:
-            #     return "tie"  # Tie game
-            # elif score_diff <= 7:
-            #     return "close_win"  # Very close win or Close win
-            # else:
-            #     return "far_win"  # Moderate win or Big win
+        # Game pattern analysis using score progression + final outcome
+        def get_game_pattern(game_sequence, final_score_diff):
+            try:
+                # Extract score_difference column (assuming it's index 0)
+                if torch.is_tensor(game_sequence):
+                    score_progression = game_sequence[:, 0].numpy()  # score_difference over time
+                else:
+                    score_progression = np.array(game_sequence)[:, 0]
+                
+                # Analyze how the score changed throughout the game
+                early_score = score_progression[:len(score_progression)//3].mean()  # First third
+                late_score = score_progression[-len(score_progression)//3:].mean()   # Last third
+                
+                final_margin = abs(final_score_diff)
+                
+                # Simple patterns based on score progression + final outcome:
+                
+                # Pattern 1: Close games (final margin <= 7)
+                if final_margin <= 7:
+                    return "close_game"
+                
+                # Pattern 2: Early lead held (similar early/late scores, big final margin)
+                elif abs(early_score - late_score) < 7 and final_margin > 14:
+                    return "wire_to_wire"
+                
+                # Pattern 3: Momentum shift (big difference between early/late scores)  
+                elif abs(early_score - late_score) > 10:
+                    return "momentum_shift"
+                
+                # Pattern 4: Standard blowout (big final margin)
+                else:
+                    return "blowout"
+                    
+            except:
+                # Fallback to simple margin-based
+                final_margin = abs(final_score_diff)
+                if final_margin <= 7:
+                    return "close_game"
+                else:
+                    return "blowout"
         
-        # Binary similarity: 1 if same broad category, 0 otherwise
-        cat1 = get_broad_category(score_diff_1)
-        cat2 = get_broad_category(score_diff_2)
+        # Pattern similarity: 1 if same game pattern, 0 otherwise
+        cat1 = get_game_pattern(x1, score_diff_1)
+        cat2 = get_game_pattern(x2, score_diff_2)
         
-        # Games are similar only if they're in the same broad category
+        # Games are similar only if they follow the same pattern:
+        # close_game, wire_to_wire, momentum_shift, or blowout
         label = 1 if cat1 == cat2 else 0
         
         return x1, x2, torch.FloatTensor([label]).squeeze()
@@ -133,27 +184,19 @@ class NFLDataset(Dataset):
 class SiameseNetwork(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim=64):
         super(SiameseNetwork, self).__init__()
-        # self.transformer_encoder = nn.TransformerEncoder(
-        #     nn.TransformerEncoderLayer(
-        #         d_model=input_dim, 
-        #         nhead=1,
-        #         batch_first=True,
-        #         dropout=0.1
-        #     ), 
-        #     num_layers=1
-        # )
-        # Simple LSTM-based encoder for sequential data
-        self.lstm = nn.LSTM(input_dim, hidden_dim, batch_first=True, dropout=0.3)
+        # Balanced LSTM-based encoder for sequential data
+        self.lstm = nn.LSTM(input_dim, hidden_dim, batch_first=True)
         
-        # Feature extraction head
+        # Moderate complexity feature extraction head
         self.head = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.3),
+            nn.Dropout(0.35),
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.BatchNorm1d(hidden_dim // 2),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.3),
+            nn.Dropout(0.35),
             nn.Linear(hidden_dim // 2, output_dim)
         )
 
@@ -161,7 +204,7 @@ class SiameseNetwork(nn.Module):
         """
         x: [batch, seq, input_dim]
         """
-        # LSTM processes the sequence
+        # Single LSTM processes the sequence
         lstm_out, (hidden, _) = self.lstm(x)  # [batch, seq, hidden_dim]
         
         # Use the last hidden state as the sequence representation
@@ -208,12 +251,12 @@ class SiameseClassifier:
             val_y: np.array of shape (n_val_samples,)
             score_difference_index: int, index of the score difference feature in X
         """
-        train_dataset = NFLDataset(X, y, max_pairs_per_sample=30)  # Reduced pairs for efficiency
+        train_dataset = NFLDataset(X, y, max_pairs_per_sample=15)  # More pairs for better generalization
 
         print("Data loaded!")
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         if val_X is not None and val_y is not None:
-            val_dataset = NFLDataset(val_X, val_y, max_pairs_per_sample=20)  # Fewer validation pairs
+            val_dataset = NFLDataset(val_X, val_y, max_pairs_per_sample=10)  # More validation pairs for better evaluation
             # Use the same batch size for validation to avoid batch norm issues
             val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
         else:
@@ -221,8 +264,9 @@ class SiameseClassifier:
         
         # Training with scheduler and early stopping
         best_val_loss = float('inf')
+        best_model_state = None
         patience_counter = 0
-        patience = 15
+        patience = 5  # Aggressive early stopping to prevent overfitting
         
         for epoch in range(self.epochs):
             # Training
@@ -284,14 +328,21 @@ class SiameseClassifier:
                 # Early stopping
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
+                    best_model_state = self.model.state_dict().copy()  # Save best model
                     patience_counter = 0
                 else:
                     patience_counter += 1
                     if patience_counter >= patience:
                         print(f"Early stopping at epoch {epoch+1}")
+                        if best_model_state is not None:
+                            self.model.load_state_dict(best_model_state)  # Restore best model
+                            print(f"Restored model from best epoch with val_loss: {best_val_loss:.6f}")
                         break
             else:
                 print(f"Epoch {epoch+1}/{self.epochs}, Train Loss: {avg_train_loss:.6f}, Train Acc: {train_accuracy:.4f}")
+                # Save model state even without validation for consistency
+                if best_model_state is None:
+                    best_model_state = self.model.state_dict().copy()
     
     def _evaluate(self, data_loader):
         """Helper method for evaluation"""
