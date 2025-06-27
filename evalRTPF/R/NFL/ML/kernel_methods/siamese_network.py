@@ -6,66 +6,48 @@ import numpy as np
 import random
 
 class ContrastiveLoss(nn.Module):
-    def __init__(self, margin=1.0):
+    def __init__(self, margin=0.5):  # Smaller margin for cosine similarity
         super(ContrastiveLoss, self).__init__()
         self.margin = margin
 
     def forward(self, output1, output2, label):
         label = label.float()
         # label: 1 if similar, 0 if dissimilar
-        # Add small epsilon to prevent sqrt of zero/negative numbers
-        euclidean_distance = torch.sqrt(torch.sum((output1 - output2) ** 2, dim=1) + 1e-8)
-        loss = (label) * torch.pow(euclidean_distance, 2) + \
-               (1 - label) * torch.pow(torch.clamp(self.margin - euclidean_distance, min=0.0), 2)
+        
+        # Cosine similarity (ranges from -1 to 1, where 1 = identical)
+        cosine_sim = F.cosine_similarity(output1, output2, dim=1)
+        
+        # Convert to distance (0 = identical, 2 = opposite)
+        cosine_distance = 1 - cosine_sim
+        
+        # Contrastive loss with cosine distance
+        loss = (label) * torch.pow(cosine_distance, 2) + \
+               (1 - label) * torch.pow(torch.clamp(self.margin - cosine_distance, min=0.0), 2)
         return loss.mean()
 
 
 class NFLDataset(Dataset):
-    def __init__(self, data_x, data_y, max_pairs_per_sample=50):
+    def __init__(self, data_x, data_y, max_pairs_per_sample=50, device='cpu'):
+        # Store device for tensor creation
+        self.device = device
         self.data_x = torch.FloatTensor(data_x)
         self.data_y = torch.LongTensor(data_y)
         self.pairs = []
         
-        # Simple game flow analysis using actual features
+        # Simple win/loss classification based on final score difference
         def get_game_pattern(game_sequence, final_score_diff):
-            try:
-                # Extract score_difference column (assuming it's index 0)
-                if torch.is_tensor(game_sequence):
-                    score_progression = game_sequence[:, 0].numpy()  # score_difference over time
-                else:
-                    score_progression = np.array(game_sequence)[:, 0]
-                
-                # Analyze how the score changed throughout the game
-                early_score = score_progression[:len(score_progression)//3].mean()  # First third
-                late_score = score_progression[-len(score_progression)//3:].mean()   # Last third
-                
-                final_margin = abs(final_score_diff)
-                
-                # Simple patterns based on score progression + final outcome:
-                
-                # Pattern 1: Close games (final margin <= 7)
-                if final_margin <= 7:
-                    return "close_game"
-                
-                # Pattern 2: Early lead held (similar early/late scores, big final margin)
-                elif abs(early_score - late_score) < 7 and final_margin > 14:
-                    return "wire_to_wire"
-                
-                # Pattern 3: Momentum shift (big difference between early/late scores)  
-                elif abs(early_score - late_score) > 10:
-                    return "momentum_shift"
-                
-                # Pattern 4: Standard blowout (big final margin)
-                else:
-                    return "blowout"
-                    
-            except:
-                # Fallback to simple margin-based
-                final_margin = abs(final_score_diff)
-                if final_margin <= 7:
-                    return "close_game"
-                else:
-                    return "blowout"
+            # Classify based on final score difference and margin
+            # Positive score_diff = win, Negative = loss
+            # Margin <= 7 = close, > 7 = big
+            
+            if final_score_diff > 7:
+                return "big_win"
+            elif 0 < final_score_diff <= 7:
+                return "close_win"
+            elif -7 <= final_score_diff < 0:
+                return "close_loss"
+            else:  # final_score_diff < -7
+                return "big_loss"
         
         # Group samples by game pattern
         category_groups = {}
@@ -130,56 +112,30 @@ class NFLDataset(Dataset):
         score_diff_1 = y1.item()
         score_diff_2 = y2.item()
         
-        # Game pattern analysis using score progression + final outcome
+        # Simple win/loss classification based on final score difference
         def get_game_pattern(game_sequence, final_score_diff):
-            try:
-                # Extract score_difference column (assuming it's index 0)
-                if torch.is_tensor(game_sequence):
-                    score_progression = game_sequence[:, 0].numpy()  # score_difference over time
-                else:
-                    score_progression = np.array(game_sequence)[:, 0]
-                
-                # Analyze how the score changed throughout the game
-                early_score = score_progression[:len(score_progression)//3].mean()  # First third
-                late_score = score_progression[-len(score_progression)//3:].mean()   # Last third
-                
-                final_margin = abs(final_score_diff)
-                
-                # Simple patterns based on score progression + final outcome:
-                
-                # Pattern 1: Close games (final margin <= 7)
-                if final_margin <= 7:
-                    return "close_game"
-                
-                # Pattern 2: Early lead held (similar early/late scores, big final margin)
-                elif abs(early_score - late_score) < 7 and final_margin > 14:
-                    return "wire_to_wire"
-                
-                # Pattern 3: Momentum shift (big difference between early/late scores)  
-                elif abs(early_score - late_score) > 10:
-                    return "momentum_shift"
-                
-                # Pattern 4: Standard blowout (big final margin)
-                else:
-                    return "blowout"
-                    
-            except:
-                # Fallback to simple margin-based
-                final_margin = abs(final_score_diff)
-                if final_margin <= 7:
-                    return "close_game"
-                else:
-                    return "blowout"
+            # Classify based on final score difference and margin
+            # Positive score_diff = win, Negative = loss
+            # Margin <= 7 = close, > 7 = big
+            
+            if final_score_diff > 7:
+                return "big_win"
+            elif 0 < final_score_diff <= 7:
+                return "close_win"
+            elif -7 <= final_score_diff < 0:
+                return "close_loss"
+            else:  # final_score_diff < -7
+                return "big_loss"
         
-        # Pattern similarity: 1 if same game pattern, 0 otherwise
+        # Pattern similarity: 1 if same game outcome pattern, 0 otherwise
         cat1 = get_game_pattern(x1, score_diff_1)
         cat2 = get_game_pattern(x2, score_diff_2)
         
-        # Games are similar only if they follow the same pattern:
-        # close_game, wire_to_wire, momentum_shift, or blowout
+        # Games are similar only if they follow the same outcome pattern:
+        # big_win, close_win, close_loss, or big_loss
         label = 1 if cat1 == cat2 else 0
         
-        return x1, x2, torch.FloatTensor([label]).squeeze()
+        return x1.to(self.device), x2.to(self.device), torch.FloatTensor([label]).squeeze().to(self.device)
     
 class SiameseNetwork(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim=64):
@@ -234,12 +190,19 @@ class SiameseClassifier:
         """
         Initializes the SiameseClassifier.
         """
-        self.model = model
+        self.model = model.to(device)  # Ensure model is on correct device
         self.epochs = epochs
         self.optimizer = optimizer
-        self.criterion = criterion
+        self.criterion = criterion.to(device)  # Ensure criterion is on correct device
         self.device = device
         self.scheduler = scheduler
+        # Track training metrics
+        self.final_train_loss = None
+        self.final_train_accuracy = None
+        self.final_val_loss = None
+        self.final_val_accuracy = None
+        self.best_epoch = None
+        self.epochs_trained = None
     
     def fit(self, X, y, val_X = None, val_y = None, batch_size = 128):
         """
@@ -251,12 +214,12 @@ class SiameseClassifier:
             val_y: np.array of shape (n_val_samples,)
             score_difference_index: int, index of the score difference feature in X
         """
-        train_dataset = NFLDataset(X, y, max_pairs_per_sample=15)  # More pairs for better generalization
+        train_dataset = NFLDataset(X, y, max_pairs_per_sample=15, device=self.device)  # More pairs for better generalization
 
         print("Data loaded!")
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         if val_X is not None and val_y is not None:
-            val_dataset = NFLDataset(val_X, val_y, max_pairs_per_sample=10)  # More validation pairs for better evaluation
+            val_dataset = NFLDataset(val_X, val_y, max_pairs_per_sample=10, device=self.device)  # More validation pairs for better evaluation
             # Use the same batch size for validation to avoid batch norm issues
             val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
         else:
@@ -267,6 +230,10 @@ class SiameseClassifier:
         best_model_state = None
         patience_counter = 0
         patience = 5  # Aggressive early stopping to prevent overfitting
+        best_epoch = 0
+        
+        print(f"Starting training on device: {self.device}")
+        print(f"Model is on device: {next(self.model.parameters()).device}")
         
         for epoch in range(self.epochs):
             # Training
@@ -275,9 +242,14 @@ class SiameseClassifier:
             train_correct = 0
             train_total = 0
             
-            for batch in train_loader:
+            for batch_idx, batch in enumerate(train_loader):
                 x1, x2, y = batch
                 x1, x2, y = x1.to(self.device), x2.to(self.device), y.to(self.device)
+                
+                # Debug device info for first batch
+                if epoch == 0 and batch_idx == 0:
+                    print(f"Input tensors device: x1={x1.device}, x2={x2.device}, y={y.device}")
+                    print(f"Model parameters device: {next(self.model.parameters()).device}")
                 
                 # Check for NaN in inputs
                 if torch.isnan(x1).any() or torch.isnan(x2).any():
@@ -304,12 +276,13 @@ class SiameseClassifier:
                 self.optimizer.step()
                 train_loss += loss.item()
                 
-                # Count the number of correct predictions based on distance threshold
+                # Count the number of correct predictions based on cosine distance threshold
                 with torch.no_grad():
-                    distances = torch.sqrt(torch.sum((output1 - output2) ** 2, dim=1) + 1e-8)
+                    cosine_sim = F.cosine_similarity(output1, output2, dim=1)
+                    cosine_distances = 1 - cosine_sim
                     # Use half the contrastive loss margin as threshold (more principled)
-                    threshold = self.criterion.margin / 2.0  # 1.0 if margin=2.0
-                    predictions = (distances < threshold).float()  # 1 if similar, 0 if dissimilar
+                    threshold = self.criterion.margin / 2.0  # 0.25 if margin=0.5
+                    predictions = (cosine_distances < threshold).float()  # 1 if similar, 0 if dissimilar
                     train_correct += (predictions == y.reshape(-1)).float().sum().item()
                     train_total += len(predictions)
             
@@ -329,6 +302,12 @@ class SiameseClassifier:
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     best_model_state = self.model.state_dict().copy()  # Save best model
+                    best_epoch = epoch + 1
+                    # Store best metrics
+                    self.final_val_loss = val_loss
+                    self.final_val_accuracy = val_accuracy
+                    self.final_train_loss = avg_train_loss
+                    self.final_train_accuracy = train_accuracy
                     patience_counter = 0
                 else:
                     patience_counter += 1
@@ -336,13 +315,21 @@ class SiameseClassifier:
                         print(f"Early stopping at epoch {epoch+1}")
                         if best_model_state is not None:
                             self.model.load_state_dict(best_model_state)  # Restore best model
-                            print(f"Restored model from best epoch with val_loss: {best_val_loss:.6f}")
+                            print(f"Restored model from best epoch {best_epoch} with val_loss: {best_val_loss:.6f}")
                         break
             else:
                 print(f"Epoch {epoch+1}/{self.epochs}, Train Loss: {avg_train_loss:.6f}, Train Acc: {train_accuracy:.4f}")
                 # Save model state even without validation for consistency
                 if best_model_state is None:
                     best_model_state = self.model.state_dict().copy()
+                # Store final metrics for no-validation case
+                self.final_train_loss = avg_train_loss
+                self.final_train_accuracy = train_accuracy
+                best_epoch = epoch + 1
+        
+        # Store final training info
+        self.best_epoch = best_epoch
+        self.epochs_trained = epoch + 1
     
     def _evaluate(self, data_loader):
         """Helper method for evaluation"""
@@ -374,11 +361,12 @@ class SiameseClassifier:
                     
                 total_loss += loss.item()
                 
-                # Count the number of correct predictions based on distance threshold
-                distances = torch.sqrt(torch.sum((output1 - output2) ** 2, dim=1) + 1e-8)
+                # Count the number of correct predictions based on cosine distance threshold
+                cosine_sim = F.cosine_similarity(output1, output2, dim=1)
+                cosine_distances = 1 - cosine_sim
                 # Use half the contrastive loss margin as threshold (more principled)
-                threshold = self.criterion.margin / 2.0  # 1.0 if margin=2.0
-                predictions = (distances < threshold).float()  # 1 if similar, 0 if dissimilar
+                threshold = self.criterion.margin / 2.0  # 0.25 if margin=0.5
+                predictions = (cosine_distances < threshold).float()  # 1 if similar, 0 if dissimilar
                 correct += (predictions == y).float().sum().item()
                 total_samples += len(predictions)
         
@@ -388,12 +376,104 @@ class SiameseClassifier:
 
     def predict(self, x1, x2):
         """
-        Predicts the similarity between two inputs based on embedding distance.
-        Returns distance (lower = more similar).
+        Predicts the similarity between two inputs based on cosine similarity.
+        Returns cosine distance (lower = more similar, 0 = identical, 2 = opposite).
         """
         self.model.eval()
         with torch.no_grad():
+            # Ensure input tensors are on the same device as the model
+            x1 = x1.to(self.device)
+            x2 = x2.to(self.device)
             output1, output2 = self.model(x1, x2)
-            distance = torch.sqrt(torch.sum((output1 - output2) ** 2, dim=1))
-            return distance
+            cosine_sim = F.cosine_similarity(output1, output2, dim=1)
+            cosine_distance = 1 - cosine_sim
+            return cosine_distance
+    
+    def save_model(self, filepath_prefix, timesteps_range):
+        """
+        Save the trained model with informative filename including metrics.
+        
+        Args:
+            filepath_prefix: Base path and prefix for the saved model
+            timesteps_range: List [start_time, end_time] for the timestep range
+        """
+        # Create informative filename
+        # Format metrics for filename (avoid decimals in filename)
+        val_acc = int(self.final_val_accuracy * 10000) if self.final_val_accuracy else 0
+        val_loss = int(self.final_val_loss * 10000) if self.final_val_loss else 0
+        
+        # Build filename with timesteps and metrics
+        filename = f"{filepath_prefix}_ep{self.best_epoch}"
+        filename += f"_valAcc{val_acc}_valLoss{val_loss}.pth"
+        
+        # Save model state dict and training info
+        checkpoint = {
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'timesteps_range': timesteps_range,
+            'best_epoch': self.best_epoch,
+            'epochs_trained': self.epochs_trained,
+            'final_train_loss': self.final_train_loss,
+            'final_train_accuracy': self.final_train_accuracy,
+            'final_val_loss': self.final_val_loss,
+            'final_val_accuracy': self.final_val_accuracy,
+            'model_config': {
+                'input_dim': self.model.lstm.input_size,
+                'hidden_dim': self.model.lstm.hidden_size,
+                'output_dim': self.model.head[-1].out_features
+            }
+        }
+        
+        torch.save(checkpoint, filename)
+        print(f"Model saved: {filename}")
+        return filename
+    
+    @classmethod
+    def load_model(cls, filepath, device=None):
+        """
+        Load a saved SiameseClassifier model.
+        
+        Args:
+            filepath: Path to the saved model file
+            device: Device to load the model on (default: auto-detect)
+        
+        Returns:
+            SiameseClassifier: Loaded model instance
+        """
+        if device is None:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        checkpoint = torch.load(filepath, map_location=device)
+        
+        # Recreate the model architecture
+        model_config = checkpoint['model_config']
+        siamese_network = SiameseNetwork(
+            input_dim=model_config['input_dim'],
+            hidden_dim=model_config['hidden_dim'],
+            output_dim=model_config['output_dim']
+        )
+        
+        # Load model state
+        siamese_network.load_state_dict(checkpoint['model_state_dict'])
+        siamese_network.to(device)
+        
+        # Create classifier instance (dummy optimizer/criterion for loading)
+        criterion = ContrastiveLoss(margin=0.5)
+        optimizer = torch.optim.AdamW(siamese_network.parameters(), lr=0.001)
+        
+        # Note: siamese_network is already moved to device above
+        classifier = cls(siamese_network, 1, optimizer, criterion, device)
+        
+        # Restore training metrics
+        classifier.final_train_loss = checkpoint.get('final_train_loss')
+        classifier.final_train_accuracy = checkpoint.get('final_train_accuracy')
+        classifier.final_val_loss = checkpoint.get('final_val_loss')
+        classifier.final_val_accuracy = checkpoint.get('final_val_accuracy')
+        classifier.best_epoch = checkpoint.get('best_epoch')
+        classifier.epochs_trained = checkpoint.get('epochs_trained')
+        
+        print(f"Model loaded from: {filepath}")
+        print(f"Best epoch: {classifier.best_epoch}, Val Acc: {classifier.final_val_accuracy:.4f}")
+        
+        return classifier
 

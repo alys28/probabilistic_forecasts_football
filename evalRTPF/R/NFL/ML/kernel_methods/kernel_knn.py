@@ -70,10 +70,17 @@ def setup_models(training_data, test_data, num_models = 20, epochs = 50, lr = 0.
         
         # Debug: Print the actual input dimension being used
         actual_input_dim = X_train.shape[-1]
-        print(f"Actual input dimension: {actual_input_dim}")        
+        print(f"Actual input dimension: {actual_input_dim}")
+        print(f"Using device: {device}")
+        
         # Use the actual input dimension instead of len(features) - 1
         siamese_network = SiameseNetwork(actual_input_dim, hidden_dim)
-        criterion = ContrastiveLoss(margin=1.0)  # Balanced margin
+        criterion = ContrastiveLoss(margin=0.5)  # Balanced margin for cosine similarity
+        
+        # Move model to device BEFORE creating optimizer
+        siamese_network = siamese_network.to(device)
+        criterion = criterion.to(device)
+        
         optimizer = torch.optim.AdamW(siamese_network.parameters(), lr=lr, weight_decay=0.05)  # Moderate regularization
         
         # Add learning rate scheduler - more patience for learning
@@ -83,6 +90,14 @@ def setup_models(training_data, test_data, num_models = 20, epochs = 50, lr = 0.
         
         # Reduce pairs per sample to prevent overfitting
         siamese_classifier.fit(X_train, y_train, val_X = X_test, val_y = y_test, batch_size = batch_size)
+        
+        # Save the trained model with informative filename
+        model_save_dir = "saved_models"
+        os.makedirs(model_save_dir, exist_ok=True)
+        model_prefix = os.path.join(model_save_dir, "siamese_model")
+        saved_filepath = siamese_classifier.save_model(model_prefix, timesteps_range)
+        print(f"Model {i+1}/{num_models} saved to: {saved_filepath}")
+        
         models.append(siamese_classifier)
         
     return models
