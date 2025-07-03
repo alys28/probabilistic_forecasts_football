@@ -10,7 +10,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 
-def setup_models(training_data, test_data, num_models = 20, epochs = 50, lr = 0.0005, batch_size = 64, hidden_dim = 64, head_output_dim = 16):
+def setup_models(training_data, test_data, num_models = 20, epochs = 100, lr = 0.001, batch_size = 128, hidden_dim = 128, head_output_dim = 32):
     """
     Setup models for each timestep range with normalization pipeline.
     """
@@ -79,10 +79,10 @@ def setup_models(training_data, test_data, num_models = 20, epochs = 50, lr = 0.
         siamese_network = siamese_network.to(device)
         criterion = criterion.to(device)
         
-        optimizer = torch.optim.AdamW(siamese_network.parameters(), lr=lr, weight_decay=0.05)  # Moderate regularization
+        optimizer = torch.optim.AdamW(siamese_network.parameters(), lr=lr, weight_decay=0.01)  # Lighter regularization for simpler network
         
-        # Add learning rate scheduler - more patience for learning
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
+        # Add learning rate scheduler - more patience for simpler network
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.7, patience=8)
         
         siamese_classifier = SiameseClassifier(siamese_network, epochs, optimizer, criterion, device, scheduler)
         

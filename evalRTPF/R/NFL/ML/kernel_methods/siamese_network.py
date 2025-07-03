@@ -27,7 +27,7 @@ import random
 
 
 class NFLDataset(Dataset):
-    def __init__(self, data_x, data_y, max_pairs_per_sample=100, device='cpu'):
+    def __init__(self, data_x, data_y, max_pairs_per_sample=1000, device='cpu'):
         # Store device for tensor creation
         self.device = device
         self.data_x = torch.FloatTensor(data_x)
@@ -130,25 +130,12 @@ class NFLDataset(Dataset):
 class SiameseNetwork(nn.Module):
     def __init__(self, input_dim, hidden_dim, head_output_dim=64):
         super(SiameseNetwork, self).__init__()
-        # Moderate complexity feature extraction head
+        # Simplified feature extraction head - much simpler architecture
         self.head = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.35),
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.BatchNorm1d(hidden_dim // 2),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.35),
-            nn.Linear(hidden_dim // 2, head_output_dim)
-        )
-
-        self.cls_head = nn.Sequential(
-            nn.Dropout(p=0.5),
-            nn.Linear(head_output_dim, 4),
-            nn.ReLU(),
-            nn.Linear(4, 1),
-            nn.Sigmoid(),
+            nn.Dropout(0.2),
+            nn.Linear(hidden_dim, head_output_dim)
         )
 
     def forward_one(self, x):
@@ -160,11 +147,21 @@ class SiameseNetwork(nn.Module):
         return x
         
     def forward(self, x1, x2):
+        # Get normalized feature representations
         x1 = self.forward_one(x1)
         x2 = self.forward_one(x2)
-        product = torch.mul(x1, x2)
-        out = self.cls_head(product)
-        return out
+        
+        # Calculate cosine similarity
+        cosine_sim = F.cosine_similarity(x1, x2)
+        
+        # Convert cosine similarity from [-1, 1] to [0, 1] range for sigmoid-like output
+        similarity = (cosine_sim + 1) / 2
+        
+        
+        # Reshape to match expected output format [batch_size, 1]
+        similarity = similarity.unsqueeze(1)
+        
+        return similarity
 
 class SiameseClassifier:
     def __init__(self, model, epochs, optimizer, criterion, device, scheduler=None):
@@ -195,12 +192,12 @@ class SiameseClassifier:
             val_y: np.array of shape (n_val_samples,)
             score_difference_index: int, index of the score difference feature in X
         """
-        train_dataset = NFLDataset(X, y, max_pairs_per_sample=15, device=self.device)  # More pairs for better generalization
+        train_dataset = NFLDataset(X, y, max_pairs_per_sample=20, device=self.device)  # More pairs for simpler network
 
         print("Data loaded!")
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         if val_X is not None and val_y is not None:
-            val_dataset = NFLDataset(val_X, val_y, max_pairs_per_sample=10, device=self.device)  # More validation pairs for better evaluation
+            val_dataset = NFLDataset(val_X, val_y, max_pairs_per_sample=15, device=self.device)  # More validation pairs for simpler network
             # Use the same batch size for validation to avoid batch norm issues
             val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
         else:
@@ -210,7 +207,7 @@ class SiameseClassifier:
         best_val_loss = float('inf')
         best_model_state = None
         patience_counter = 0
-        patience = 5  # Aggressive early stopping to prevent overfitting
+        patience = 10  # More patience for simpler network
         best_epoch = 0
         
         print(f"Starting training on device: {self.device}")
@@ -393,7 +390,7 @@ class SiameseClassifier:
             'model_config': {
                 'input_dim': self.model.head[0].in_features,
                 'hidden_dim': self.model.head[-1].out_features,
-                'output_dim': self.model.head[-1].out_features
+                'head_output_dim': self.model.head[-1].out_features
             }
         }
         
@@ -423,7 +420,7 @@ class SiameseClassifier:
         siamese_network = SiameseNetwork(
             input_dim=model_config['input_dim'],
             hidden_dim=model_config['hidden_dim'],
-            output_dim=model_config['output_dim']
+            head_output_dim=model_config['head_output_dim']
         )
         
         # Load model state
