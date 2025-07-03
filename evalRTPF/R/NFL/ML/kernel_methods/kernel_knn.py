@@ -2,7 +2,7 @@ import numpy as np
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from kernel_methods.siamese_network import SiameseClassifier, SiameseNetwork, ContrastiveLoss
+from kernel_methods.siamese_network import SiameseClassifier, SiameseNetwork
 from notebooks import process_data
 import torch
 import torch.nn as nn
@@ -10,7 +10,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 
-def setup_models(training_data, test_data, num_models = 20, epochs = 50, lr = 0.00005, batch_size = 64, hidden_dim = 48):
+def setup_models(training_data, test_data, num_models = 20, epochs = 50, lr = 0.0005, batch_size = 64, hidden_dim = 64, head_output_dim = 16):
     """
     Setup models for each timestep range with normalization pipeline.
     """
@@ -44,7 +44,7 @@ def setup_models(training_data, test_data, num_models = 20, epochs = 50, lr = 0.
             print(f"No data for timestep range {timesteps_range}, skipping...")
             continue
         
-        # Normalize 3D data (batch_size, seq_len, input_dim)
+        # Normalize 3D data (batch_size, seq_len, input_dim) if needed
         # Reshape to 2D for normalization: (batch_size * seq_len, input_dim)
         original_train_shape = X_train.shape
         original_test_shape = X_test.shape
@@ -74,10 +74,8 @@ def setup_models(training_data, test_data, num_models = 20, epochs = 50, lr = 0.
         print(f"Using device: {device}")
         
         # Use the actual input dimension instead of len(features) - 1
-        siamese_network = SiameseNetwork(actual_input_dim, hidden_dim)
-        criterion = ContrastiveLoss(margin=0.5)  # Balanced margin for cosine similarity
-        
-        # Move model to device BEFORE creating optimizer
+        siamese_network = SiameseNetwork(actual_input_dim, hidden_dim, head_output_dim=head_output_dim)
+        criterion = nn.BCELoss()
         siamese_network = siamese_network.to(device)
         criterion = criterion.to(device)
         

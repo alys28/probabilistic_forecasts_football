@@ -20,19 +20,70 @@ def load_data(interpolated_dir, years, history_length, features, label_feature, 
                         df.loc[1:, "away_team_id"] = df.iloc[0]["away_team_id"]
                         df.loc[1:, "home_team_id"] = df.iloc[0]["home_team_id"]
                         df.loc[1:, "home_win"] = df.iloc[0]["home_win"]
+                        
+                        nan_found_in_file = False
+                        
                         for idx in range(1, len(df)):
                             current_row = df.iloc[idx]
-                            current_row_np = current_row[features].to_numpy().reshape(1, -1)
+                            
+                            # Check for NaN in label
+                            label = current_row[label_feature]
+                            try:
+                        
+                                label_float = float(label)
+                                if np.isnan(label_float):
+                                    if not nan_found_in_file:
+                                        print(f"  NaN found in file: {file_path}")
+                                        nan_found_in_file = True
+                                    continue  # Skip this row
+                            except (ValueError, TypeError):
+                                if not nan_found_in_file:
+                                    print(f"  Invalid label in file: {file_path}")
+                                    nan_found_in_file = True
+                                continue  # Skip this row
+                            
+                            # Check for NaN in current row features (safer method)
+                            try:
+                                current_row_features = current_row[features].to_numpy(dtype=np.float32)
+                                if np.isnan(current_row_features).any():
+                                    if not nan_found_in_file:
+                                        print(f"  NaN found in file: {file_path}")
+                                        nan_found_in_file = True
+                                    continue  # Skip this row
+                            except (ValueError, TypeError):
+                                if not nan_found_in_file:
+                                    print(f"  Invalid features in file: {file_path}")
+                                    nan_found_in_file = True
+                                continue  # Skip this row
+                            
+                            current_row_np = current_row_features.reshape(1, -1)
                             start_idx = max(1, idx - history_length)
                             actual_history_len = idx - start_idx
-                            history_rows = df.iloc[start_idx:idx][features].to_numpy(dtype=np.float32)
-                            label = current_row[label_feature]
-                            if actual_history_len < history_length:
-                                padding = np.zeros((history_length - actual_history_len, len(features)))
-                                history_rows = np.concatenate([padding, history_rows], axis=0)
-                            final_rows_for_timestep = np.concatenate([history_rows, current_row_np], axis=0)
-                            training_data[current_row["timestep"]].append({"rows": final_rows_for_timestep, "label": label})
-                        
+                            
+                            # Check for NaN in history rows (safer method)
+                            if history_length > 0:
+                                try:
+                                    history_rows = df.iloc[start_idx:idx][features].to_numpy(dtype=np.float32)
+                                    if np.isnan(history_rows).any():
+                                        if not nan_found_in_file:
+                                            print(f"  NaN found in file: {file_path}")
+                                            nan_found_in_file = True
+                                        continue  # Skip this row
+                                except (ValueError, TypeError):
+                                    if not nan_found_in_file:
+                                        print(f"  Invalid history data in file: {file_path}")
+                                        nan_found_in_file = True
+                                    continue  # Skip this row
+                                
+                                if actual_history_len < history_length:
+                                    padding = np.zeros((history_length - actual_history_len, len(features)))
+                                    history_rows = np.concatenate([padding, history_rows], axis=0)
+                                
+                                final_rows_for_timestep = np.concatenate([history_rows, current_row_np], axis=0)
+                            else:
+                                final_rows_for_timestep = current_row_np.reshape(-1)
+                            training_data[current_row["timestep"]].append({"rows": final_rows_for_timestep, "label": label_float})
+                     
             else: 
                 print("skipping ", folder)
     return training_data

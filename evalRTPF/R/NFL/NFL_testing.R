@@ -59,7 +59,7 @@ Z <- df_equ %>% group_by(grid) %>%
 temp <- df_equ %>% group_split(grid, .keep = FALSE)
 
 eigV_hat <- lapply(1:nsamp, function(i) {
-  sapply(1:nsamp, function(j) {
+  sapply(1:nsamp, function(j) { 
     as.numeric(temp[[i]]$diff_non_cent %*% temp[[j]]$diff_non_cent / ngame)
   })
 }) %>% list.rbind %>% {

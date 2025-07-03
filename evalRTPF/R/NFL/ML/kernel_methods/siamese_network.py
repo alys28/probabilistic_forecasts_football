@@ -5,29 +5,29 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import random
 
-class ContrastiveLoss(nn.Module):
-    def __init__(self, margin=0.5):  # Smaller margin for cosine similarity
-        super(ContrastiveLoss, self).__init__()
-        self.margin = margin
+# class ContrastiveLoss(nn.Module):
+#     def __init__(self, margin=0.5):  # Smaller margin for cosine similarity
+#         super(ContrastiveLoss, self).__init__()
+#         self.margin = margin
 
-    def forward(self, output1, output2, label):
-        label = label.float()
-        # label: 1 if similar, 0 if dissimilar
+#     def forward(self, output1, output2, label):
+#         label = label.float()
+#         # label: 1 if similar, 0 if dissimilar
         
-        # Cosine similarity (ranges from -1 to 1, where 1 = identical)
-        cosine_sim = F.cosine_similarity(output1, output2, dim=1)
+#         # Cosine similarity (ranges from -1 to 1, where 1 = identical)
+#         cosine_sim = F.cosine_similarity(output1, output2, dim=1)
         
-        # Convert to distance (0 = identical, 2 = opposite)
-        cosine_distance = 1 - cosine_sim
+#         # Convert to distance (0 = identical, 2 = opposite)
+#         cosine_distance = 1 - cosine_sim
         
-        # Contrastive loss with cosine distance
-        loss = (label) * torch.pow(cosine_distance, 2) + \
-               (1 - label) * torch.pow(torch.clamp(self.margin - cosine_distance, min=0.0), 2)
-        return loss.mean()
+#         # Contrastive loss with cosine distance
+#         loss = (label) * torch.pow(cosine_distance, 2) + \
+#                (1 - label) * torch.pow(torch.clamp(self.margin - cosine_distance, min=0.0), 2)
+#         return loss.mean()
 
 
 class NFLDataset(Dataset):
-    def __init__(self, data_x, data_y, max_pairs_per_sample=50, device='cpu'):
+    def __init__(self, data_x, data_y, max_pairs_per_sample=100, device='cpu'):
         # Store device for tensor creation
         self.device = device
         self.data_x = torch.FloatTensor(data_x)
@@ -35,25 +35,20 @@ class NFLDataset(Dataset):
         self.pairs = []
         
         # Simple win/loss classification based on final score difference
-        def get_game_pattern(game_sequence, final_score_diff):
+        def get_game_pattern(final_score_diff):
             # Classify based on final score difference and margin
             # Positive score_diff = win, Negative = loss
             # Margin <= 7 = close, > 7 = big
             
-            if final_score_diff > 7:
-                return "big_win"
-            elif 0 < final_score_diff <= 7:
-                return "close_win"
-            elif -7 <= final_score_diff < 0:
-                return "close_loss"
-            else:  # final_score_diff < -7
-                return "big_loss"
-        
+            if final_score_diff > 0:
+                return "win"
+            else:
+                return "loss"
         # Group samples by game pattern
         category_groups = {}
         for i, y in enumerate(self.data_y):
             game_seq = self.data_x[i]
-            cat = get_game_pattern(game_seq, y.item())
+            cat = get_game_pattern(y.item())
             if cat not in category_groups:
                 category_groups[cat] = []
             category_groups[cat].append(i)
@@ -63,7 +58,7 @@ class NFLDataset(Dataset):
         
         for i in range(len(self.data_x)):
             game_seq = self.data_x[i]
-            current_cat = get_game_pattern(game_seq, self.data_y[i].item())
+            current_cat = get_game_pattern(self.data_y[i].item())
             pairs_created = 0
             
             # Create positive pairs (same broad category only)
@@ -113,39 +108,31 @@ class NFLDataset(Dataset):
         score_diff_2 = y2.item()
         
         # Simple win/loss classification based on final score difference
-        def get_game_pattern(game_sequence, final_score_diff):
+        def get_game_pattern(final_score_diff):
             # Classify based on final score difference and margin
             # Positive score_diff = win, Negative = loss
             # Margin <= 7 = close, > 7 = big
             
-            if final_score_diff > 7:
-                return "big_win"
-            elif 0 < final_score_diff <= 7:
-                return "close_win"
-            elif -7 <= final_score_diff < 0:
-                return "close_loss"
-            else:  # final_score_diff < -7
-                return "big_loss"
+            if final_score_diff > 0:
+                return "win"
+            else:
+                return "loss"
         
         # Pattern similarity: 1 if same game outcome pattern, 0 otherwise
-        cat1 = get_game_pattern(x1, score_diff_1)
-        cat2 = get_game_pattern(x2, score_diff_2)
+        cat1 = get_game_pattern(score_diff_1)
+        cat2 = get_game_pattern(score_diff_2)
         
         # Games are similar only if they follow the same outcome pattern:
         # big_win, close_win, close_loss, or big_loss
         label = 1 if cat1 == cat2 else 0
-        
-        return x1.to(self.device), x2.to(self.device), torch.FloatTensor([label]).squeeze().to(self.device)
+        return x1.to(self.device), x2.to(self.device), torch.FloatTensor([label]).to(self.device)
     
 class SiameseNetwork(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim=64):
+    def __init__(self, input_dim, hidden_dim, head_output_dim=64):
         super(SiameseNetwork, self).__init__()
-        # Balanced LSTM-based encoder for sequential data
-        self.lstm = nn.LSTM(input_dim, hidden_dim, batch_first=True)
-        
         # Moderate complexity feature extraction head
         self.head = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(input_dim, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Dropout(0.35),
@@ -153,37 +140,31 @@ class SiameseNetwork(nn.Module):
             nn.BatchNorm1d(hidden_dim // 2),
             nn.ReLU(inplace=True),
             nn.Dropout(0.35),
-            nn.Linear(hidden_dim // 2, output_dim)
+            nn.Linear(hidden_dim // 2, head_output_dim)
+        )
+
+        self.cls_head = nn.Sequential(
+            nn.Dropout(p=0.5),
+            nn.Linear(head_output_dim, 4),
+            nn.ReLU(),
+            nn.Linear(4, 1),
+            nn.Sigmoid(),
         )
 
     def forward_one(self, x):
         """
-        x: [batch, seq, input_dim]
+        x: [batch, input_dim] - 2D input expected by Linear layers
         """
-        # Single LSTM processes the sequence
-        lstm_out, (hidden, _) = self.lstm(x)  # [batch, seq, hidden_dim]
-        
-        # Use the last hidden state as the sequence representation
-        sequence_repr = hidden[-1]  # [batch, hidden_dim]
-        
         # Pass through the head network
-        x = self.head(sequence_repr)  # [batch, output_dim]
-        
-        # L2 normalization for stable training
-        norm = torch.norm(x, p=2, dim=1, keepdim=True) + 1e-8
-        x = x / norm
+        x = self.head(x)  # [batch, output_dim]
         return x
         
     def forward(self, x1, x2):
-        return self.forward_one(x1), self.forward_one(x2)
-
-def train_siamese_network(model, train_loader, epochs, optimizer, criterion, device, val_loader = None):
-    # This function is now deprecated - training is handled in SiameseClassifier.fit()
-    pass
-
-def evaluate_siamese_network(model, test_loader, criterion, device):
-    # This function is now deprecated - evaluation is handled in SiameseClassifier._evaluate()
-    pass
+        x1 = self.forward_one(x1)
+        x2 = self.forward_one(x2)
+        product = torch.mul(x1, x2)
+        out = self.cls_head(product)
+        return out
 
 class SiameseClassifier:
     def __init__(self, model, epochs, optimizer, criterion, device, scheduler=None):
@@ -253,19 +234,22 @@ class SiameseClassifier:
                 
                 # Check for NaN in inputs
                 if torch.isnan(x1).any() or torch.isnan(x2).any():
+                    print("NaN in inputs")
                     continue
                     
-                output1, output2 = self.model(x1, x2)
+                output = self.model(x1, x2)
                 
                 # Check for NaN in outputs
-                if torch.isnan(output1).any() or torch.isnan(output2).any():
+                if torch.isnan(output).any():
+                    print("NaN in outputs")
                     continue
                     
                 self.optimizer.zero_grad()
-                loss = self.criterion(output1, output2, y)
+                loss = self.criterion(output, y)
                 
                 # Check for NaN in loss
                 if torch.isnan(loss):
+                    print("NaN in loss")
                     continue
                     
                 loss.backward()
@@ -276,15 +260,10 @@ class SiameseClassifier:
                 self.optimizer.step()
                 train_loss += loss.item()
                 
-                # Count the number of correct predictions based on cosine distance threshold
                 with torch.no_grad():
-                    cosine_sim = F.cosine_similarity(output1, output2, dim=1)
-                    cosine_distances = 1 - cosine_sim
-                    # Use half the contrastive loss margin as threshold (more principled)
-                    threshold = self.criterion.margin / 2.0  # 0.25 if margin=0.5
-                    predictions = (cosine_distances < threshold).float()  # 1 if similar, 0 if dissimilar
-                    train_correct += (predictions == y.reshape(-1)).float().sum().item()
-                    train_total += len(predictions)
+                   predictions = (output > 0.5).float()
+                   train_correct += (predictions == y).float().sum().item()
+                   train_total += len(predictions)
             
             avg_train_loss = train_loss / len(train_loader)
             train_accuracy = train_correct / train_total if train_total > 0 else 0
@@ -347,26 +326,23 @@ class SiameseClassifier:
                 if torch.isnan(x1).any() or torch.isnan(x2).any():
                     continue
                     
-                output1, output2 = self.model(x1, x2)
+                output = self.model(x1, x2)
                 
                 # Skip batch if outputs contain NaN
-                if torch.isnan(output1).any() or torch.isnan(output2).any():
+                if torch.isnan(output).any():
+                    print("NaN in Evaluation")
                     continue
                     
-                loss = self.criterion(output1, output2, y)
+                loss = self.criterion(output, y)
                 
                 # Skip batch if loss is NaN
                 if torch.isnan(loss):
+                    print("NaN Loss in Evaluation")
                     continue
                     
                 total_loss += loss.item()
                 
-                # Count the number of correct predictions based on cosine distance threshold
-                cosine_sim = F.cosine_similarity(output1, output2, dim=1)
-                cosine_distances = 1 - cosine_sim
-                # Use half the contrastive loss margin as threshold (more principled)
-                threshold = self.criterion.margin / 2.0  # 0.25 if margin=0.5
-                predictions = (cosine_distances < threshold).float()  # 1 if similar, 0 if dissimilar
+                predictions = (output > 0.5).float()
                 correct += (predictions == y).float().sum().item()
                 total_samples += len(predictions)
         
@@ -377,17 +353,14 @@ class SiameseClassifier:
     def predict(self, x1, x2):
         """
         Predicts the similarity between two inputs based on cosine similarity.
-        Returns cosine distance (lower = more similar, 0 = identical, 2 = opposite).
         """
         self.model.eval()
         with torch.no_grad():
             # Ensure input tensors are on the same device as the model
             x1 = x1.to(self.device)
             x2 = x2.to(self.device)
-            output1, output2 = self.model(x1, x2)
-            cosine_sim = F.cosine_similarity(output1, output2, dim=1)
-            cosine_distance = 1 - cosine_sim
-            return cosine_distance
+            output = self.model(x1, x2)
+            return output
     
     def save_model(self, filepath_prefix, timesteps_range):
         """
@@ -418,8 +391,8 @@ class SiameseClassifier:
             'final_val_loss': self.final_val_loss,
             'final_val_accuracy': self.final_val_accuracy,
             'model_config': {
-                'input_dim': self.model.lstm.input_size,
-                'hidden_dim': self.model.lstm.hidden_size,
+                'input_dim': self.model.head[0].in_features,
+                'hidden_dim': self.model.head[-1].out_features,
                 'output_dim': self.model.head[-1].out_features
             }
         }
@@ -458,7 +431,7 @@ class SiameseClassifier:
         siamese_network.to(device)
         
         # Create classifier instance (dummy optimizer/criterion for loading)
-        criterion = ContrastiveLoss(margin=0.5)
+        criterion = nn.BCELoss() 
         optimizer = torch.optim.AdamW(siamese_network.parameters(), lr=0.001)
         
         # Note: siamese_network is already moved to device above
