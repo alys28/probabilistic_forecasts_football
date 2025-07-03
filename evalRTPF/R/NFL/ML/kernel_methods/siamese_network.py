@@ -195,12 +195,12 @@ class SiameseClassifier:
             val_y: np.array of shape (n_val_samples,)
             score_difference_index: int, index of the score difference feature in X
         """
-        train_dataset = NFLDataset(X, y, max_pairs_per_sample=20, device=self.device)  # More pairs for simpler network
+        train_dataset = NFLDataset(X, y, max_pairs_per_sample=100, device=self.device)  # More pairs for simpler network
 
         print("Data loaded!")
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         if val_X is not None and val_y is not None:
-            val_dataset = NFLDataset(val_X, val_y, max_pairs_per_sample=15, device=self.device)  # More validation pairs for simpler network
+            val_dataset = NFLDataset(val_X, val_y, max_pairs_per_sample=50, device=self.device)  # More validation pairs for simpler network
             # Use the same batch size for validation to avoid batch norm issues
             val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
         else:
@@ -328,11 +328,6 @@ class SiameseClassifier:
                     
                 output = self.model(x1, x2)
                 
-                # Check that all values in output are between 0 and 1
-                if not torch.all((output >= 0) & (output <= 1)):
-                    print(f"Output values outside [0,1] range: {output}")
-                    print(f"Min: {output.min().item()}, Max: {output.max().item()}")
-                
                 # Skip batch if outputs contain NaN
                 if torch.isnan(output).any():
                     print("NaN in Evaluation")
@@ -377,11 +372,11 @@ class SiameseClassifier:
         """
         # Create informative filename
         # Format metrics for filename (avoid decimals in filename)
-        val_acc = int(self.final_val_accuracy * 10000) if self.final_val_accuracy else 0
-        val_loss = int(self.final_val_loss * 10000) if self.final_val_loss else 0
+        val_acc = self.final_val_accuracy
+        val_loss = self.final_val_loss
         
         # Build filename with timesteps and metrics
-        filename = f"{filepath_prefix}_ep{self.best_epoch}"
+        filename = f"{filepath_prefix}_{timesteps_range[0]}-{timesteps_range[1]}_ep{self.best_epoch}"
         filename += f"_valAcc{val_acc}_valLoss{val_loss}.pth"
         
         # Save model state dict and training info
