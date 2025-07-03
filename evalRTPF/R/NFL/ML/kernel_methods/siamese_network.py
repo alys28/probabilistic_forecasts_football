@@ -157,6 +157,9 @@ class SiameseNetwork(nn.Module):
         # Convert cosine similarity from [-1, 1] to [0, 1] range for sigmoid-like output
         similarity = (cosine_sim + 1) / 2
         
+        # Clamp with small epsilon to preserve gradients near boundaries
+        eps = 1e-7
+        similarity = torch.clamp(similarity, eps, 1.0 - eps)
         
         # Reshape to match expected output format [batch_size, 1]
         similarity = similarity.unsqueeze(1)
@@ -324,6 +327,11 @@ class SiameseClassifier:
                     continue
                     
                 output = self.model(x1, x2)
+                
+                # Check that all values in output are between 0 and 1
+                if not torch.all((output >= 0) & (output <= 1)):
+                    print(f"Output values outside [0,1] range: {output}")
+                    print(f"Min: {output.min().item()}, Max: {output.max().item()}")
                 
                 # Skip batch if outputs contain NaN
                 if torch.isnan(output).any():
