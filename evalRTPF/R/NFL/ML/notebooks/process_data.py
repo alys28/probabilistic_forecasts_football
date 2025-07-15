@@ -20,9 +20,6 @@ def load_data(interpolated_dir, years, history_length, features, label_feature, 
                         df.loc[1:, "away_team_id"] = df.iloc[0]["away_team_id"]
                         df.loc[1:, "home_team_id"] = df.iloc[0]["home_team_id"]
                         df.loc[1:, "home_win"] = df.iloc[0]["home_win"]
-                        
-                        nan_found_in_file = False
-                        
                         for idx in range(1, len(df)):
                             current_row = df.iloc[idx]
                             
@@ -32,48 +29,32 @@ def load_data(interpolated_dir, years, history_length, features, label_feature, 
                         
                                 label_float = float(label)
                                 if np.isnan(label_float):
-                                    if not nan_found_in_file:
-                                        print(f"  NaN found in file: {file_path}")
-                                        nan_found_in_file = True
-                                    continue  # Skip this row
+                                    print(f"  NaN Label found in file: {file_path}")
+                                    break
                             except (ValueError, TypeError):
-                                if not nan_found_in_file:
-                                    print(f"  Invalid label in file: {file_path}")
-                                    nan_found_in_file = True
-                                continue  # Skip this row
+                                print(f"  Invalid label in file: {file_path}")
                             
                             # Check for NaN in current row features (safer method)
                             try:
                                 current_row_features = current_row[features].to_numpy(dtype=np.float32)
                                 if np.isnan(current_row_features).any():
-                                    if not nan_found_in_file:
-                                        print(f"  NaN found in file: {file_path}")
-                                        nan_found_in_file = True
-                                    continue  # Skip this row
+                                    print(f"  NaN found in file: {file_path}")
+                                    current_row_features = np.nan_to_num(current_row_features, nan=0.0)
+                                    print(current_row_features)
                             except (ValueError, TypeError):
-                                if not nan_found_in_file:
-                                    print(f"  Invalid features in file: {file_path}")
-                                    nan_found_in_file = True
-                                continue  # Skip this row
-                            
+                                print(f"  Invalid features in file: {file_path}")
                             current_row_np = current_row_features.reshape(1, -1)
                             start_idx = max(1, idx - history_length)
                             actual_history_len = idx - start_idx
                             
                             # Check for NaN in history rows (safer method)
                             if history_length > 0:
-                                try:
-                                    history_rows = df.iloc[start_idx:idx][features].to_numpy(dtype=np.float32)
-                                    if np.isnan(history_rows).any():
-                                        if not nan_found_in_file:
-                                            print(f"  NaN found in file: {file_path}")
-                                            nan_found_in_file = True
-                                        continue  # Skip this row
-                                except (ValueError, TypeError):
-                                    if not nan_found_in_file:
-                                        print(f"  Invalid history data in file: {file_path}")
-                                        nan_found_in_file = True
-                                    continue  # Skip this row
+                                history_rows = df.iloc[start_idx:idx][features].to_numpy(dtype=np.float32)
+                                if np.isnan(history_rows).any():
+                                    print(f"  NaN found in file: {file_path}")
+                                    print(history_rows)
+                                    history_rows = np.nan_to_num(history_rows, nan=0.0)
+                                    print(history_rows)
                                 
                                 if actual_history_len < history_length:
                                     padding = np.zeros((history_length - actual_history_len, len(features)))
@@ -82,7 +63,7 @@ def load_data(interpolated_dir, years, history_length, features, label_feature, 
                                 final_rows_for_timestep = np.concatenate([history_rows, current_row_np], axis=0)
                             else:
                                 final_rows_for_timestep = current_row_np.reshape(-1)
-                            training_data[current_row["timestep"]].append({"rows": final_rows_for_timestep, "label": label_float})
+                            training_data[round(current_row["timestep"], 3)].append({"rows": final_rows_for_timestep, "label": label_float})
                      
             else: 
                 print("skipping ", folder)
@@ -230,30 +211,44 @@ def plot(models, tests, title=""):
     plot_accuracy(models, tests, title)
     plot_loss(models, tests, title)
 
-def write_predictions(models, features_test_data, interpolated_dir, phat_b = "phat_b"):
-# Write the predictions to csv file
-    for folder in features_test_data:
-        print(folder)
-        test_data = features_test_data[folder]
-        
-        for file in test_data:
-            df = pd.read_csv(os.path.join(interpolated_dir, folder, file))
-
-            # Precompute rounded timesteps for faster lookup
-            df["rounded_timestep"] = df["timestep"].round(3)
-            rows = df.iloc[1:].iterrows()
-            index, row = next(rows)
-            for i, timestep in enumerate(models):
-                model = models[timestep]
-                X_test = np.array(test_data[file][i])[1:].reshape(1, -1)
-                pred = model.predict_proba(X_test)[0][1]
-                try:
-                    while round(row["timestep"], 3) == round(timestep, 3):
-                        df.at[index, phat_b] = pred
-                        index, row = next(rows)
-                except StopIteration:
-                    pass
-            # Save the file once after all updates
-            df.drop(columns=["rounded_timestep"], inplace=True)
-            df.to_csv(os.path.join(interpolated_dir, folder, file), index=False)
-            print(f"Finished writing to {file}")
+def write_predictions(models, interpolated_dir, years, history_length, features, replace_nan_val = 0, phat_b = "phat_b"):
+    # Write the predictions to csv file
+    for folder in os.listdir(interpolated_dir):
+        folder_path = os.path.join(interpolated_dir, folder)
+        if os.path.isdir(folder_path):
+            if (int(folder) in years):
+                print(f"Loading data for {folder}")
+                for file in os.listdir(folder_path):
+                    if file.endswith(".csv"):
+                        file_path = os.path.join(folder_path, file)
+                        df = pd.read_csv(file_path)
+                        df.loc[1:, "relative_strength"] = df.iloc[0]["homeWinProbability"]
+                        df.loc[1:, "away_team_id"] = df.iloc[0]["away_team_id"]
+                        df.loc[1:, "home_team_id"] = df.iloc[0]["home_team_id"]
+                        df.loc[1:, "home_win"] = df.iloc[0]["home_win"]
+                        for idx in range(1, len(df)):
+                            current_row = df.iloc[idx]
+                            # Get column names
+                            current_row_features = current_row[features].to_numpy(dtype=np.float32)
+                            current_row_features = np.nan_to_num(current_row_features, nan=replace_nan_val)
+                            
+                            current_row_np = current_row_features.reshape(1, -1)
+                            start_idx = max(1, idx - history_length)
+                            actual_history_len = idx - start_idx
+                            if history_length > 0:
+                                history_rows = df.iloc[start_idx:idx][features].to_numpy(dtype=np.float32)
+                                history_rows = np.nan_to_num(history_rows, nan=replace_nan_val)
+                                if actual_history_len < history_length:
+                                    padding = np.zeros((history_length - actual_history_len, len(features)))
+                                    history_rows = np.concatenate([padding, history_rows], axis=0)
+                                final_rows_for_timestep = np.concatenate([history_rows, current_row_np], axis=0)
+                            else:
+                                final_rows_for_timestep = current_row_np.reshape(-1)
+                            # Do inference
+                            timestep = round(current_row["timestep"], 3)
+                            model = models[timestep]
+                            X_test = final_rows_for_timestep.reshape(1, -1)
+                            pred = model.predict_proba(X_test)[0][1]
+                            df.at[idx, phat_b] = pred
+                        df.to_csv(file_path, index=False)
+                        print("Processed file: ", file)

@@ -6,3 +6,7 @@ evalRTPF/R/NFL/ML/dataset
 *.csv
 *.sav
 *.pth
+*.faiss
+*.pkl
+*.pyc
+*.tsv

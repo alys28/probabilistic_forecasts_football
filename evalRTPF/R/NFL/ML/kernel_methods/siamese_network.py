@@ -27,23 +27,22 @@ import random
 
 
 class NFLDataset(Dataset):
-    def __init__(self, data_x, data_y, max_pairs_per_sample=1000, device='cpu'):
+    def __init__(self, data_x, data_y, max_pairs_per_sample=25, device='cpu', add_noise=False, noise_std=0.01):
         # Store device for tensor creation
         self.device = device
         self.data_x = torch.FloatTensor(data_x)
         self.data_y = torch.LongTensor(data_y)
         self.pairs = []
+        self.add_noise = add_noise
+        self.noise_std = noise_std
         
         # Simple win/loss classification based on final score difference
         def get_game_pattern(final_score_diff):
-            # Classify based on final score difference and margin
-            # Positive score_diff = win, Negative = loss
-            # Margin <= 7 = close, > 7 = big
-            
             if final_score_diff > 0:
                 return "win"
             else:
                 return "loss"
+        
         # Group samples by game pattern
         category_groups = {}
         for i, y in enumerate(self.data_y):
@@ -66,8 +65,8 @@ class NFLDataset(Dataset):
             if current_cat in category_groups:
                 positive_candidates = [j for j in category_groups[current_cat] if j != i]
             
-            # Sample positive pairs
-            num_positive = min(max_pairs_per_sample // 2, len(positive_candidates))
+            # Sample positive pairs - reduced from max_pairs_per_sample // 2
+            num_positive = min(max_pairs_per_sample // 3, len(positive_candidates))
             if positive_candidates:
                 positive_samples = random.sample(positive_candidates, num_positive)
                 for j in positive_samples:
@@ -77,10 +76,10 @@ class NFLDataset(Dataset):
             # Create negative pairs (different broad categories)
             negative_candidates = []
             for cat, indices in category_groups.items():
-                if cat != current_cat:  # Different broad categories
+                if cat != current_cat:
                     negative_candidates.extend([j for j in indices if j != i])
             
-            # Sample negative pairs
+            # Sample negative pairs - ensure balance
             num_negative = min(max_pairs_per_sample - pairs_created, len(negative_candidates))
             if negative_candidates:
                 negative_samples = random.sample(negative_candidates, num_negative)
@@ -89,61 +88,81 @@ class NFLDataset(Dataset):
         
         # Shuffle pairs for better training
         random.shuffle(self.pairs)
-        print(f"Created {len(self.pairs)} balanced pairs")
+        print(f"Created {len(self.pairs)} balanced pairs (reduced from previous version)")
 
     def __len__(self):
         return len(self.pairs)
 
     def __getitem__(self, idx):
-        """
-        Returns a pair of data points and a label. The label is 1 if the two data points have similar score differences, 0 otherwise.
-        """
         i, j = self.pairs[idx]
         x1 = self.data_x[i]
         x2 = self.data_x[j]
         y1 = self.data_y[i]
         y2 = self.data_y[j]
-        # Get score differences for both games (keep the sign!)
+        
+        # Add noise for data augmentation if enabled
+        if self.add_noise:
+            noise1 = torch.randn_like(x1) * self.noise_std
+            noise2 = torch.randn_like(x2) * self.noise_std
+            x1 = x1 + noise1
+            x2 = x2 + noise2
+        
         score_diff_1 = y1.item()
         score_diff_2 = y2.item()
         
-        # Simple win/loss classification based on final score difference
         def get_game_pattern(final_score_diff):
-            # Classify based on final score difference and margin
-            # Positive score_diff = win, Negative = loss
-            # Margin <= 7 = close, > 7 = big
-            
             if final_score_diff > 0:
                 return "win"
             else:
                 return "loss"
         
-        # Pattern similarity: 1 if same game outcome pattern, 0 otherwise
         cat1 = get_game_pattern(score_diff_1)
         cat2 = get_game_pattern(score_diff_2)
         
-        # Games are similar only if they follow the same outcome pattern:
-        # big_win, close_win, close_loss, or big_loss
         label = 1 if cat1 == cat2 else 0
         return x1.to(self.device), x2.to(self.device), torch.FloatTensor([label]).to(self.device)
     
 class SiameseNetwork(nn.Module):
-    def __init__(self, input_dim, hidden_dim, head_output_dim=64):
+    def __init__(self, input_dim, hidden_dim, head_output_dim=32, dropout_rate=0.5):
         super(SiameseNetwork, self).__init__()
-        # Simplified feature extraction head - much simpler architecture
+        # Store constructor parameters for saving/loading
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.head_output_dim = head_output_dim
+        self.dropout_rate = dropout_rate
+        
+        # Simpler, shallower architecture with stronger regularization
         self.head = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.2),
-            nn.Linear(hidden_dim, head_output_dim)
+            nn.Dropout(dropout_rate),
+            
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.BatchNorm1d(hidden_dim // 2),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout_rate * 0.8),  # Slightly lower dropout in later layers
+            
+            nn.Linear(hidden_dim // 2, head_output_dim)
         )
+        
+        # Initialize weights for better training stability
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.BatchNorm1d):
+                nn.init.ones_(m.weight)
+                nn.init.zeros_(m.bias)
 
     def forward_one(self, x):
-        """
-        x: [batch, input_dim] - 2D input expected by Linear layers
-        """
-        # Pass through the head network
-        x = self.head(x)  # [batch, output_dim]
+        x = self.head(x)
+        # L2 normalize the output for better similarity computation
+        x = F.normalize(x, p=2, dim=1)
         return x
         
     def forward(self, x1, x2):
@@ -154,10 +173,10 @@ class SiameseNetwork(nn.Module):
         # Calculate cosine similarity
         cosine_sim = F.cosine_similarity(x1, x2)
         
-        # Convert cosine similarity from [-1, 1] to [0, 1] range for sigmoid-like output
+        # Convert cosine similarity from [-1, 1] to [0, 1] range
         similarity = (cosine_sim + 1) / 2
         
-        # Clamp with small epsilon to preserve gradients near boundaries
+        # Clamp with small epsilon to preserve gradients
         eps = 1e-7
         similarity = torch.clamp(similarity, eps, 1.0 - eps)
         
@@ -168,13 +187,10 @@ class SiameseNetwork(nn.Module):
 
 class SiameseClassifier:
     def __init__(self, model, epochs, optimizer, criterion, device, scheduler=None):
-        """
-        Initializes the SiameseClassifier.
-        """
-        self.model = model.to(device)  # Ensure model is on correct device
+        self.model = model.to(device)
         self.epochs = epochs
         self.optimizer = optimizer
-        self.criterion = criterion.to(device)  # Ensure criterion is on correct device
+        self.criterion = criterion.to(device)
         self.device = device
         self.scheduler = scheduler
         # Track training metrics
@@ -185,33 +201,27 @@ class SiameseClassifier:
         self.best_epoch = None
         self.epochs_trained = None
     
-    def fit(self, X, y, val_X = None, val_y = None, batch_size = 128):
-        """
-        Fits the SiameseClassifier to the data.
-        Args:
-            X: np.array of shape (n_samples, n_features)
-            y: np.array of shape (n_samples,)
-            val_X: np.array of shape (n_val_samples, n_features)
-            val_y: np.array of shape (n_val_samples,)
-            score_difference_index: int, index of the score difference feature in X
-        """
-        train_dataset = NFLDataset(X, y, max_pairs_per_sample=100, device=self.device)  # More pairs for simpler network
+    def fit(self, X, y, val_X=None, val_y=None, batch_size=64):  # Reduced batch size
+        # Reduced max_pairs_per_sample to prevent overfitting
+        train_dataset = NFLDataset(X, y, max_pairs_per_sample=25, device=self.device, 
+                                 add_noise=True, noise_std=0.005)  # Added noise augmentation
 
         print("Data loaded!")
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         if val_X is not None and val_y is not None:
-            val_dataset = NFLDataset(val_X, val_y, max_pairs_per_sample=50, device=self.device)  # More validation pairs for simpler network
-            # Use the same batch size for validation to avoid batch norm issues
+            val_dataset = NFLDataset(val_X, val_y, max_pairs_per_sample=15, device=self.device, 
+                                   add_noise=False)  # No noise for validation
             val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
         else:
             val_loader = None
         
-        # Training with scheduler and early stopping
+        # More aggressive early stopping
         best_val_loss = float('inf')
         best_model_state = None
         patience_counter = 0
-        patience = 10  # More patience for simpler network
+        patience = 5  # Reduced patience from 10 to 5
         best_epoch = 0
+        min_improvement = 1e-4  # Minimum improvement threshold
         
         print(f"Starting training on device: {self.device}")
         print(f"Model is on device: {next(self.model.parameters()).device}")
@@ -254,8 +264,8 @@ class SiameseClassifier:
                     
                 loss.backward()
                 
-                # Add gradient clipping to prevent exploding gradients
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                # More aggressive gradient clipping
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=0.5)
                 
                 self.optimizer.step()
                 train_loss += loss.item()
@@ -273,14 +283,18 @@ class SiameseClassifier:
                 val_loss, val_accuracy = self._evaluate(val_loader)
                 print(f"Epoch {epoch+1}/{self.epochs}, Train Loss: {avg_train_loss:.6f}, Train Acc: {train_accuracy:.4f}, Val Loss: {val_loss:.6f}, Val Acc: {val_accuracy:.4f}")
                 
-                # Learning rate scheduling
+                # Learning rate scheduling based on validation loss
                 if self.scheduler:
-                    self.scheduler.step(val_loss)
+                    if hasattr(self.scheduler, 'step'):
+                        if 'ReduceLROnPlateau' in str(type(self.scheduler)):
+                            self.scheduler.step(val_loss)
+                        else:
+                            self.scheduler.step()
                 
-                # Early stopping
-                if val_loss < best_val_loss:
+                # More stringent early stopping
+                if val_loss < best_val_loss - min_improvement:
                     best_val_loss = val_loss
-                    best_model_state = self.model.state_dict().copy()  # Save best model
+                    best_model_state = self.model.state_dict().copy()
                     best_epoch = epoch + 1
                     # Store best metrics
                     self.final_val_loss = val_loss
@@ -293,15 +307,13 @@ class SiameseClassifier:
                     if patience_counter >= patience:
                         print(f"Early stopping at epoch {epoch+1}")
                         if best_model_state is not None:
-                            self.model.load_state_dict(best_model_state)  # Restore best model
+                            self.model.load_state_dict(best_model_state)
                             print(f"Restored model from best epoch {best_epoch} with val_loss: {best_val_loss:.6f}")
                         break
             else:
                 print(f"Epoch {epoch+1}/{self.epochs}, Train Loss: {avg_train_loss:.6f}, Train Acc: {train_accuracy:.4f}")
-                # Save model state even without validation for consistency
                 if best_model_state is None:
                     best_model_state = self.model.state_dict().copy()
-                # Store final metrics for no-validation case
                 self.final_train_loss = avg_train_loss
                 self.final_train_accuracy = train_accuracy
                 best_epoch = epoch + 1
@@ -309,7 +321,44 @@ class SiameseClassifier:
         # Store final training info
         self.best_epoch = best_epoch
         self.epochs_trained = epoch + 1
-    
+    def embed_data(self, data):
+        """
+        Embed data from dictionary format.
+        
+        Args:
+            data: List of dictionaries with format {"row": np.array, "label": float}
+            
+        Returns:
+            tuple: (embeddings, labels) where embeddings is a list of torch.Tensors of shape (n_samples, embedding_dim)
+                   and labels is a list of original labels
+        """
+        self.model.eval()
+        embeddings = []
+        labels = []
+        
+        with torch.no_grad():
+            for item in data:
+                # Extract the row data and label from dictionary
+                row_data = item["rows"]
+                label = item["label"]
+                
+                # Convert numpy array to tensor and move to device
+                if isinstance(row_data, np.ndarray):
+                    x = torch.FloatTensor(row_data).to(self.device)
+                else:
+                    x = torch.FloatTensor(row_data).to(self.device)
+                
+                # Handle single sample (add batch dimension if needed)
+                if x.dim() == 1:
+                    x = x.unsqueeze(0)
+                
+                # Get embedding
+                embedding = self.model.forward_one(x)
+                embedding = embedding.squeeze(0)
+                embeddings.append(embedding.cpu())  # Move back to CPU to save GPU memory
+                labels.append(label)
+            embeddings = torch.stack(embeddings)
+        return embeddings, labels
     def _evaluate(self, data_loader):
         """Helper method for evaluation"""
         self.model.eval()
@@ -351,35 +400,20 @@ class SiameseClassifier:
         return avg_loss, accuracy
 
     def predict(self, x1, x2):
-        """
-        Predicts the similarity between two inputs based on cosine similarity.
-        """
         self.model.eval()
         with torch.no_grad():
-            # Ensure input tensors are on the same device as the model
             x1 = x1.to(self.device)
             x2 = x2.to(self.device)
             output = self.model(x1, x2)
             return output
     
     def save_model(self, filepath_prefix, timesteps_range):
-        """
-        Save the trained model with informative filename including metrics.
-        
-        Args:
-            filepath_prefix: Base path and prefix for the saved model
-            timesteps_range: List [start_time, end_time] for the timestep range
-        """
-        # Create informative filename
-        # Format metrics for filename (avoid decimals in filename)
         val_acc = self.final_val_accuracy
         val_loss = self.final_val_loss
         
-        # Build filename with timesteps and metrics
         filename = f"{filepath_prefix}_{timesteps_range[0]}-{timesteps_range[1]}_ep{self.best_epoch}"
-        filename += f"_valAcc{val_acc}_valLoss{val_loss}.pth"
+        filename += f"_valAcc{val_acc}_valLoss{val_loss:.4f}.pth"
         
-        # Save model state dict and training info
         checkpoint = {
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
@@ -391,9 +425,10 @@ class SiameseClassifier:
             'final_val_loss': self.final_val_loss,
             'final_val_accuracy': self.final_val_accuracy,
             'model_config': {
-                'input_dim': self.model.head[0].in_features,
-                'hidden_dim': self.model.head[-1].out_features,
-                'head_output_dim': self.model.head[-1].out_features
+                'input_dim': self.model.input_dim,
+                'hidden_dim': self.model.hidden_dim,
+                'head_output_dim': self.model.head_output_dim,
+                'dropout_rate': self.model.dropout_rate
             }
         }
         
@@ -403,16 +438,6 @@ class SiameseClassifier:
     
     @classmethod
     def load_model(cls, filepath, device=None):
-        """
-        Load a saved SiameseClassifier model.
-        
-        Args:
-            filepath: Path to the saved model file
-            device: Device to load the model on (default: auto-detect)
-        
-        Returns:
-            SiameseClassifier: Loaded model instance
-        """
         if device is None:
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
@@ -423,18 +448,18 @@ class SiameseClassifier:
         siamese_network = SiameseNetwork(
             input_dim=model_config['input_dim'],
             hidden_dim=model_config['hidden_dim'],
-            head_output_dim=model_config['head_output_dim']
+            head_output_dim=model_config.get('head_output_dim', 32),
+            dropout_rate=model_config.get('dropout_rate', 0.5)
         )
         
         # Load model state
         siamese_network.load_state_dict(checkpoint['model_state_dict'])
         siamese_network.to(device)
         
-        # Create classifier instance (dummy optimizer/criterion for loading)
+        # Create classifier instance
         criterion = nn.BCELoss() 
         optimizer = torch.optim.AdamW(siamese_network.parameters(), lr=0.001)
         
-        # Note: siamese_network is already moved to device above
         classifier = cls(siamese_network, 1, optimizer, criterion, device)
         
         # Restore training metrics

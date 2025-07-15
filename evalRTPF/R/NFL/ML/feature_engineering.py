@@ -251,6 +251,35 @@ def add_final_score_difference(df):
     return df
 
 
+def add_relative_strength(df):
+    '''
+    Adds a column for relative strength.
+    Skips the first row (header row).
+    '''
+    # relative strength is the home win probability of the home team at timestep 0 (first row)
+    relative_strength = [df.iloc[1]['homeWinProbability']] * (len(df) - 1)
+    relative_strength.insert(0, None)
+    df['relative_strength'] = relative_strength
+    return df
+
+
+def has_overtime_improved(file_path):
+    df = pd.read_csv(file_path)
+    last_row = df.iloc[-1]
+    if last_row['homeScore'] == last_row['awayScore']:
+        return True
+    return False
+
+def get_overtime_files(directory):
+    """Delete all CSV files in directory that contain overtime plays"""
+    deleted_files = []
+    for filename in os.listdir(directory):
+        if filename.endswith('.csv'):
+            file_path = os.path.join(directory, filename)
+            if has_overtime(file_path) or has_overtime_improved(file_path):
+                print(f"Overtime: {filename}")
+
+
 if __name__ == "__main__": 
     team_dict = {
     '22': ['ARI', 'ARZ'],
@@ -297,7 +326,8 @@ if __name__ == "__main__":
     #                 abbr.add(team)
     #     print(abbr)
     # print("FINAL:", abbr)
-    directory = "dataset_interpolated_with_overtime/2017"
+    directory = "dataset_interpolated_with_overtime/2024"
     # delete_overtime_files(directory)
-    process_directory(directory, team_dict)
-    ignore_overtime_periods(directory)
+    # process_directory(directory, team_dict)
+    # ignore_overtime_periods(directory)
+    get_overtime_files(directory)
