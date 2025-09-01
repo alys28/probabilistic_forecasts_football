@@ -22,11 +22,8 @@ def load_data(interpolated_dir, years, history_length, features, label_feature, 
                         df.loc[1:, "home_win"] = df.iloc[0]["home_win"]
                         for idx in range(1, len(df)):
                             current_row = df.iloc[idx]
-                            
-                            # Check for NaN in label
                             label = current_row[label_feature]
                             try:
-                        
                                 label_float = float(label)
                                 if np.isnan(label_float):
                                     print(f"  NaN Label found in file: {file_path}")
@@ -40,7 +37,6 @@ def load_data(interpolated_dir, years, history_length, features, label_feature, 
                                 if np.isnan(current_row_features).any():
                                     print(f"  NaN found in file: {file_path}")
                                     current_row_features = np.nan_to_num(current_row_features, nan=0.0)
-                                    print(current_row_features)
                             except (ValueError, TypeError):
                                 print(f"  Invalid features in file: {file_path}")
                             current_row_np = current_row_features.reshape(1, -1)
@@ -52,9 +48,7 @@ def load_data(interpolated_dir, years, history_length, features, label_feature, 
                                 history_rows = df.iloc[start_idx:idx][features].to_numpy(dtype=np.float32)
                                 if np.isnan(history_rows).any():
                                     print(f"  NaN found in file: {file_path}")
-                                    print(history_rows)
                                     history_rows = np.nan_to_num(history_rows, nan=0.0)
-                                    print(history_rows)
                                 
                                 if actual_history_len < history_length:
                                     padding = np.zeros((history_length - actual_history_len, len(features)))
@@ -247,7 +241,7 @@ def write_predictions(models, interpolated_dir, years, history_length, features,
                             # Do inference
                             timestep = round(current_row["timestep"], 3)
                             model = models[timestep]
-                            X_test = final_rows_for_timestep.reshape(1, -1)
+                            X_test = np.expand_dims(final_rows_for_timestep, axis=0)
                             pred = model.predict_proba(X_test)[0][1]
                             df.at[idx, phat_b] = pred
                         df.to_csv(file_path, index=False)
