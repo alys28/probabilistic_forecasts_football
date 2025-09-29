@@ -1,0 +1,5 @@
+New Methodologies:
+- Properly bucketing game states to the proper time bucket, i.e. a bucket for time t no longer contains the plays that are in the range (t - 0.05, t], but instead is responsible for [t - i, t + i], where i is a very small time interval.
+- Simulation:
+    - Using similar games from the current game to sample the next step from, and then resample from a new set of similar games with the next time step to get the next next step. Do this until you reach the final step, and obtain if the outcome is 0 or 1.
+    - Run this simulation 1000 times and then obtain a win probability with # won matches / total number of matches
