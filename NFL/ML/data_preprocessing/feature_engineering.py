@@ -271,7 +271,7 @@ def has_overtime_improved(file_path):
     return False
 
 def get_overtime_files(directory):
-    """Delete all CSV files in directory that contain overtime plays"""
+    """Get all CSV files in directory that contain overtime plays"""
     deleted_files = []
     for filename in os.listdir(directory):
         if filename.endswith('.csv'):
@@ -279,6 +279,8 @@ def get_overtime_files(directory):
             if has_overtime(file_path) or has_overtime_improved(file_path):
                 print(f"Overtime: {filename}")
 
+def bucket_times():
+    pass
 
 if __name__ == "__main__": 
     team_dict = {
