@@ -71,27 +71,75 @@ def load_data(root_dir,
 def visualize_buckets(data, timestep: float):
     assert 0 <= timestep and timestep <= 1, "Timestep must be between 0 and 1."
     timestep_entries = []
+    file_names = []
     min_val = float('inf')
     row_min = None
     file_min = None
+    
     for file, df in data:
         # print(df)
         # Get the timestep corresponding to the parameter
         rows = df[df["timestep"].isin([round(timestep, 3), round(timestep + 0.005, 3)])]
         for _, row in rows.iterrows():
             timestep_entries.append(row["timestep_raw"])
+            file_names.append(file)
             if row["timestep_raw"] < min_val:
                 min_val = row["timestep_raw"]
                 row_min = row
                 file_min = file
+    
     import matplotlib.pyplot as plt
+    from matplotlib.widgets import Cursor
+    import numpy as np
+    
     print(row_min, file_min)
     if timestep_entries:
-        plt.figure(figsize=(10, 2))
-        plt.plot(timestep_entries, [1]*len(timestep_entries), 'o', markersize=6)
-        plt.yticks([])
-        plt.xlabel("timestep_raw")
-        plt.title(f"1D Visualization of timestep_raw for timestep={timestep}")
+        fig, ax = plt.subplots(figsize=(12, 4))
+        
+        # Plot points
+        scatter = ax.scatter(timestep_entries, [1]*len(timestep_entries), 
+                           s=60, alpha=0.7, picker=True)
+        
+        # Add interactive cursor
+        cursor = Cursor(ax, horizOn=True, vertOn=True, color='red', linewidth=1)
+        
+        # Create info text box
+        info_text = fig.text(0.02, 0.02, '', fontsize=10, 
+                           bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgray", alpha=0.8))
+        
+        def on_hover(event):
+            if event.inaxes == ax:
+                # Find closest point
+                distances = [abs(x - event.xdata) for x in timestep_entries]
+                if distances and min(distances) < 0.01:  # Within reasonable distance
+                    closest_idx = distances.index(min(distances))
+                    info_text.set_text(f'File: {file_names[closest_idx]}\n'
+                                     f'X: {timestep_entries[closest_idx]:.4f}\n'
+                                     f'Y: 1.0')
+                else:
+                    info_text.set_text('')
+                fig.canvas.draw_idle()
+        
+        def on_pick(event):
+            if event.artist == scatter:
+                ind = event.ind[0]
+                info_text.set_text(f'Selected Point:\n'
+                                 f'File: {file_names[ind]}\n'
+                                 f'X: {timestep_entries[ind]:.4f}\n'
+                                 f'Y: 1.0')
+                fig.canvas.draw_idle()
+        
+        # Connect events
+        fig.canvas.mpl_connect('motion_notify_event', on_hover)
+        fig.canvas.mpl_connect('pick_event', on_pick)
+        
+        ax.set_yticks([])
+        ax.set_xlabel("timestep_raw")
+        ax.set_title(f"1D Visualization of timestep_raw for timestep={timestep}\n"
+                    f"(Hover over points to see file names, click to select)")
+        
+        # Add some padding for the info text
+        plt.subplots_adjust(bottom=0.15)
         plt.tight_layout()
         plt.show()
     else:
