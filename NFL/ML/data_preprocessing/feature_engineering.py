@@ -230,7 +230,7 @@ def ignore_overtime_periods(directory):
             file_path = os.path.join(directory, filename)
             if has_overtime(file_path):
                 df = pd.read_csv(file_path)
-                df = df[df["period.number"] <= 4]
+                df = df[(df["period.number"].isnull()) | (df["period.number"] == "") | (df["period.number"] <= 4)]
                 df.to_csv(file_path, index=False)
                 deleted_files.append(filename)
                 print(f"Deleted overtime periods from {filename}")
@@ -276,7 +276,7 @@ def get_overtime_files(directory):
     for filename in os.listdir(directory):
         if filename.endswith('.csv'):
             file_path = os.path.join(directory, filename)
-            if has_overtime(file_path) or has_overtime_improved(file_path):
+            if has_overtime(file_path) or has_overtime_improved(file_path): 
                 print(f"Overtime: {filename}")
 
 if __name__ == "__main__": 
@@ -325,8 +325,9 @@ if __name__ == "__main__":
     #                 abbr.add(team)
     #     print(abbr)
     # print("FINAL:", abbr)
-    directory = "dataset_interpolated_with_overtime/2024"
+    directory = "dataset_interpolated_fixed/2016"
     # delete_overtime_files(directory)
-    # process_directory(directory, team_dict)
-    # ignore_overtime_periods(directory)
+    process_directory(directory, team_dict)
+    get_overtime_files(directory)
+    ignore_overtime_periods(directory)
     get_overtime_files(directory)

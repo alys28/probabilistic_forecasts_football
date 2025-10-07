@@ -5,7 +5,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from typing import List, Tuple
-from bucketting_strategy import create_buckets
+from bucketting_strategy import assign_model
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(parent_dir)
 
@@ -14,7 +14,7 @@ def load_game(data_dir, data_file):
     return data
 
 # data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../.."))
-data_dir = "dataset_interpolated_fixed/2018"
+data_dir = "dataset_interpolated_fixed/2024"
 # load_game(data_dir, data_file)
 
 def interpolate_data(data, steps=0.005):
@@ -42,10 +42,10 @@ def interpolate_data(data, steps=0.005):
 
     # Compute percentage of game completed
     data["game_completed"] = 1 - data["minutes_remaining"] / 60
+    new_df = data.iloc[0:1].copy()
     data = data.sort_values("game_completed").reset_index(drop=True)
     
     new_game_completed = np.arange(0, 1 + steps, steps)
-    new_df = data.iloc[0:1].copy()
     j = 1
 
     for i in range(0, len(new_game_completed)):
@@ -69,9 +69,6 @@ def save_data(df, data_dir, filename):
     df.to_csv(updated_file_path, index=False)
     print(f"Processed and saved: {updated_file_path}")
     return os.path.join(data_dir, filename)
-
-def get_model(df, steps, threshold):
-    return create_buckets(df, steps, threshold)
 
 
 def process_single_file(args: Tuple[str, str, float]) -> Tuple[str, bool, str]:

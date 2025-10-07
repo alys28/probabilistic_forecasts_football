@@ -134,14 +134,24 @@ def visualize_buckets(data, timestep: float):
         print(f"No entries found for timestep={timestep}")
         
 
+def get_closest_timestep(num, steps, tolerance, default):
+    pass
 
-def create_buckets(data, steps, tolerance: float = 0.005):
+
+def assign_model(df, steps, tolerance: float = 0.005):
     """
     Assign a model (i.e. the timestep associated with the model) to each row of the data so that the data is properly allocated across models.
     We will use a tolerance to determine which model to assign to each row.
     We will use the following heuristic, given a timestep t, and a tolerance e:
     - If t +- e is within the range of a model's timestep (interval between 0 and 1 inclusive, with 0.005 step size), assign the row to the model.
     """
+    for row in df.iterrows():
+        game_completed = row["game_completed"]
+        default = row["timestep"]
+        row["model"] = get_closest_timestep(game_completed, steps, tolerance, default)
+    return df
+        
+
 
 if __name__ == "__main__":
     data = load_data(root_dir = "dataset_interpolated_fixed")
