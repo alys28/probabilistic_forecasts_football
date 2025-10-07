@@ -279,9 +279,6 @@ def get_overtime_files(directory):
             if has_overtime(file_path) or has_overtime_improved(file_path):
                 print(f"Overtime: {filename}")
 
-def bucket_times():
-    pass
-
 if __name__ == "__main__": 
     team_dict = {
     '22': ['ARI', 'ARZ'],

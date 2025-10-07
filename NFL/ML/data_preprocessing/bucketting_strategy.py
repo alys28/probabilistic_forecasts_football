@@ -18,18 +18,6 @@ def _read_folder(folder_path, read_csv_kwargs) -> Tuple[str, List[Tuple[str, pd.
                     m, s = map(int, t.split(":"))
                     return m*60 + s
 
-                df["seconds_remaining"] = df["clock.displayValue"].apply(to_seconds)
-
-                # Compute elapsed time in the quarter (15 minutes = 900s)
-                df["elapsed_in_period"] = df["seconds_remaining"].apply(
-                    lambda x: 900 - x if x is not None else None
-                )
-
-                # Total elapsed in game
-                df["total_elapsed"] = ((df["period.number"] - 1) * 900) + df["elapsed_in_period"]
-
-                # Normalize to percentage
-                df["timestep_raw"] = df["total_elapsed"] / (4*900)
                 dfs.append((file, df))
             except Exception as e:
                 print(f"[WARN] Failed to read {file_path}: {e}")
@@ -81,10 +69,10 @@ def visualize_buckets(data, timestep: float):
         # Get the timestep corresponding to the parameter
         rows = df[df["timestep"].isin([round(timestep, 3), round(timestep + 0.005, 3)])]
         for _, row in rows.iterrows():
-            timestep_entries.append(row["timestep_raw"])
+            timestep_entries.append(row["game_completed"])
             file_names.append(file)
-            if row["timestep_raw"] < min_val:
-                min_val = row["timestep_raw"]
+            if row["game_completed"] < min_val:
+                min_val = row["game_completed"]
                 row_min = row
                 file_min = file
     
@@ -134,8 +122,8 @@ def visualize_buckets(data, timestep: float):
         fig.canvas.mpl_connect('pick_event', on_pick)
         
         ax.set_yticks([])
-        ax.set_xlabel("timestep_raw")
-        ax.set_title(f"1D Visualization of timestep_raw for timestep={timestep}\n"
+        ax.set_xlabel("game_completed")
+        ax.set_title(f"1D Visualization of game_completed for timestep={timestep}\n"
                     f"(Hover over points to see file names, click to select)")
         
         # Add some padding for the info text
@@ -147,11 +135,17 @@ def visualize_buckets(data, timestep: float):
         
 
 
-def create_buckets():
-    pass
+def create_buckets(data, steps, tolerance: float = 0.005):
+    """
+    Assign a model (i.e. the timestep associated with the model) to each row of the data so that the data is properly allocated across models.
+    We will use a tolerance to determine which model to assign to each row.
+    We will use the following heuristic, given a timestep t, and a tolerance e:
+    - If t +- e is within the range of a model's timestep (interval between 0 and 1 inclusive, with 0.005 step size), assign the row to the model.
+    """
 
 if __name__ == "__main__":
-    data = load_data(root_dir = "dataset_interpolated_with_overtime")
+    data = load_data(root_dir = "dataset_interpolated_fixed")
     for key, df_list in data.items():
-        print(key)
-        visualize_buckets(data[key], timestep=0.99)
+        if key == "2018":
+            print(key)
+            visualize_buckets(data[key], timestep=0.99)

@@ -5,6 +5,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from typing import List, Tuple
+from bucketting_strategy import create_buckets
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(parent_dir)
 
@@ -13,18 +14,16 @@ def load_game(data_dir, data_file):
     return data
 
 # data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../.."))
-data_dir = "dataset_interpolated_fixed/2016"
+data_dir = "dataset_interpolated_fixed/2018"
 # load_game(data_dir, data_file)
 
-def interpolate_data(data, data_dir, data_file, steps=0.005):
+def interpolate_data(data, steps=0.005):
     '''
     Interpolates game data to create uniformly spaced time steps.
 
     Inputs:
     - data: a pandas DataFrame containing game event data with columns like 
             "period.number", "clock.displayValue", and "homeWinProbability".
-    - data_dir: string, directory path where the data file is located.
-    - data_file: string, name of the original CSV file to save the updated version.
     - steps: float, optional (default=0.005), the interpolation interval as a percentage 
              of the game completed (i.e., 0.5% increments by default).
 
@@ -38,15 +37,12 @@ def interpolate_data(data, data_dir, data_file, steps=0.005):
         minutes, seconds = map(int, clock.split(":"))
         return minutes + seconds / 60  # Convert to fraction of a minute
 
-    # Compute minutes remaining 
-    data["wallclock"] = pd.to_datetime(data["wallclock"], utc=True)
-    data = data.sort_values("wallclock").reset_index(drop=True)
+    # Compute minutes remaining
+    data["minutes_remaining"] = (4 - data["period.number"]) * 15 + data["clock.displayValue"][1:].apply(parse_clock)
 
-    min_time = data["wallclock"].min()
-    max_time = data["wallclock"].max()
-    data["game_completed"] = (
-        (data["wallclock"] - min_time) / (max_time - min_time) * 100
-    )
+    # Compute percentage of game completed
+    data["game_completed"] = 1 - data["minutes_remaining"] / 60
+    data = data.sort_values("game_completed").reset_index(drop=True)
     
     new_game_completed = np.arange(0, 1 + steps, steps)
     new_df = data.iloc[0:1].copy()
@@ -66,12 +62,17 @@ def interpolate_data(data, data_dir, data_file, steps=0.005):
             row["timestep"] = new_game_completed[i]
             new_df = pd.concat([new_df, row], ignore_index=True)
 
-    # Save the updated file
-    updated_file_path = os.path.join(data_dir, data_file)
-    new_df.to_csv(updated_file_path, index=False)
-    print(f"Processed and saved: {updated_file_path}")
-
     return new_df
+
+def save_data(df, data_dir, filename):
+    updated_file_path = os.path.join(data_dir, filename)
+    df.to_csv(updated_file_path, index=False)
+    print(f"Processed and saved: {updated_file_path}")
+    return os.path.join(data_dir, filename)
+
+def get_model(df, steps, threshold):
+    return create_buckets(df, steps, threshold)
+
 
 def process_single_file(args: Tuple[str, str, float]) -> Tuple[str, bool, str]:
     """
@@ -86,7 +87,8 @@ def process_single_file(args: Tuple[str, str, float]) -> Tuple[str, bool, str]:
     directory, filename, steps = args
     try:
         data = load_game(directory, filename)
-        interpolate_data(data, data_dir=directory, data_file=filename, steps=steps)
+        df = interpolate_data(data, steps=steps)
+        save_data(df, data_dir, filename)
         return filename, True, ""
     except Exception as e:
         return filename, False, str(e)

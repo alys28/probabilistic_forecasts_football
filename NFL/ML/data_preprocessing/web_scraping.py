@@ -106,6 +106,36 @@ def getPlayByPlay(game_id: str) -> List[Dict[str, Any]]:
 
     return extracted_plays
 
+def merge_play_probs(play_by_play_data, probabilities):
+    """
+    probabilities is expected to already be normalized like:
+      {"sequenceNumber": int, "homeWinProbability": float}
+
+    Both inputs must be sorted by sequenceNumber ascending.
+    If a play's sequenceNumber has no matching entry in probabilities,
+    we reuse (carry forward) the most recent prior probability.
+    """
+    merged = []
+    j = 0  # pointer into probabilities
+    n_probs = len(probabilities)
+    last_prob = None  # last seen probability dict (carried forward)
+
+    for play in play_by_play_data:
+        seq = int(play.get("sequenceNumber"))
+
+        # advance probabilities pointer while its seq <= current play seq
+        while j < n_probs and int(probabilities[j]["sequenceNumber"]) <= seq:
+            last_prob = probabilities[j]
+            j += 1
+
+        # attach carried-forward probability if we have one
+        if last_prob is not None:
+            merged.append({**play, **last_prob})
+        else:
+            # no probability seen yet for early plays; include None or skip keys
+            merged.append({**play, "sequenceNumber": seq, "homeWinProbability": None})
+
+    return merged
 
 def save_game(game_id: str, data: List[Dict[str, Any]], directory: str) -> None:
     """
@@ -130,7 +160,6 @@ def save_game(game_id: str, data: List[Dict[str, Any]], directory: str) -> None:
     df.to_csv(file_path, index=False)
 
     print(f"CSV file for game {game_id} saved at {file_path}")
-
 
 def getHomeWinProbabilities(game_id: str) -> List[Dict[str, Any]]:
     """
@@ -157,18 +186,18 @@ def getHomeWinProbabilities(game_id: str) -> List[Dict[str, Any]]:
 
     extracted_probabilities = [
         {
-            "sequenceNumber": prob.get("sequenceNumber"),
-            "homeWinProbability": prob.get("homeWinPercentage"),
+            "sequenceNumber": int(prob.get("sequenceNumber")),
+            "homeWinProbability": float(prob.get("homeWinPercentage")),
         }
         for prob in probabilities
     ]
-
-    return extracted_probabilities
+    
+    return sorted(extracted_probabilities, key=lambda item: item['sequenceNumber'])
 
 
 if __name__ == "__main__":
     # years = [2016, 2017, 2018, 2019, 2022, 2023, 2024]
-    years = [2019, 2020, 2021, 2022, 2023, 2024]
+    years = [2018]
     for year in years:
         matches = getIDs(year)
         print(f"Found {len(matches)} unique matches for year {year}")
@@ -176,7 +205,6 @@ if __name__ == "__main__":
 
         for match in matches:
             match_id, home_win, home_team_id, away_team_id = match
-
             # Save raw play-by-play
             try:
                 play_by_play_data = getPlayByPlay(match_id)
@@ -195,17 +223,13 @@ if __name__ == "__main__":
             except Exception as e:
                 print(str(e))
                 failures += 1
-
             # Save play-by-play merged with probabilities
             try:
                 play_by_play_data = getPlayByPlay(match_id)
                 probabilities = getHomeWinProbabilities(match_id)
                 if not probabilities:
                     raise Exception("No probabilities returned")
-                merged_array = [
-                    {**d1, **d2}
-                    for d1, d2 in zip(play_by_play_data, probabilities[1:])
-                ]
+                merged_array = merge_play_probs(play_by_play_data, probabilities)
                 save_game(
                     match_id,
                     [
@@ -222,7 +246,7 @@ if __name__ == "__main__":
             except Exception as e:
                 print(str(e))
                 failures += 1
-
+            break
         print(
             f"Failed to fetch play-by-play and/or probabilities for {failures} matches in {year}"
         )
