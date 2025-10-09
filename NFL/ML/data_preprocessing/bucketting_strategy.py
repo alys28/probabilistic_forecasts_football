@@ -2,6 +2,7 @@ import pandas as pd
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Tuple, List
+import math
 
 def _read_folder(folder_path, read_csv_kwargs) -> Tuple[str, List[Tuple[str, pd.DataFrame]]]:
     """Read all CSVs in a single folder; returns (folder_name, list[(file_name, df)])."""
@@ -134,28 +135,35 @@ def visualize_buckets(data, timestep: float):
         print(f"No entries found for timestep={timestep}")
         
 
-def get_closest_timestep(num, steps, tolerance, default):
-    pass
+def get_closest_timestep(game_completed, tolerance, default: int = None):
+    num = round(math.floor(game_completed * 1000) / 1000, 3)
+    last_digit = (num - round(math.floor(num * 100) / 100, 3)) * 1000
+    if last_digit >= 5:
+        closest_lower_step = math.floor(num * 100) / 100 + 0.005
+    else:
+        closest_lower_step = math.floor(num * 100) / 100
+    if closest_lower_step + tolerance > game_completed:
+        return closest_lower_step
+    else:
+        return default if default else closest_lower_step + 0.005
 
-
-def assign_model(df, steps, tolerance: float = 0.005):
+def assign_model(df, tolerance: float = 0.005):
     """
     Assign a model (i.e. the timestep associated with the model) to each row of the data so that the data is properly allocated across models.
-    We will use a tolerance to determine which model to assign to each row.
-    We will use the following heuristic, given a timestep t, and a tolerance e:
-    - If t +- e is within the range of a model's timestep (interval between 0 and 1 inclusive, with 0.005 step size), assign the row to the model.
     """
     for row in df.iterrows():
         game_completed = row["game_completed"]
         default = row["timestep"]
-        row["model"] = get_closest_timestep(game_completed, steps, tolerance, default)
+        row["model"] = get_closest_timestep(game_completed, tolerance, default)
     return df
         
 
 
 if __name__ == "__main__":
-    data = load_data(root_dir = "dataset_interpolated_fixed")
-    for key, df_list in data.items():
-        if key == "2018":
-            print(key)
-            visualize_buckets(data[key], timestep=0.99)
+    # data = load_data(root_dir = "dataset_interpolated_fixed")
+    # for key, df_list in data.items():
+    #     if key == "2018":
+    #         print(key)
+    #         visualize_buckets(data[key], timestep=0.99)
+    x = get_closest_timestep(0.01, 0.001)
+    print(x)

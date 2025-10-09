@@ -145,5 +145,6 @@ def apply_interpolation(directory, steps=0.005, max_workers=None):
         print(f"Failed to process {len(failed_files)} files:")
         for filename, error in failed_files:
             print(f"  - {filename}: {error}")
+            
 if __name__ == "__main__":
     apply_interpolation(data_dir, 0.005)

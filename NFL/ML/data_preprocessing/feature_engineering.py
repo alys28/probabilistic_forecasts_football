@@ -325,7 +325,7 @@ if __name__ == "__main__":
     #                 abbr.add(team)
     #     print(abbr)
     # print("FINAL:", abbr)
-    directory = "dataset_interpolated_fixed/2016"
+    directory = "dataset_interpolated_fixed/2024"
     # delete_overtime_files(directory)
     process_directory(directory, team_dict)
     get_overtime_files(directory)
