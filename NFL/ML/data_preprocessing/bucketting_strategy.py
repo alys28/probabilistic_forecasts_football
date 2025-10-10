@@ -1,8 +1,11 @@
+from multiprocessing import Value
 import pandas as pd
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Tuple, List
 import math
+import pytest
+
 
 def _read_folder(folder_path, read_csv_kwargs) -> Tuple[str, List[Tuple[str, pd.DataFrame]]]:
     """Read all CSVs in a single folder; returns (folder_name, list[(file_name, df)])."""
@@ -135,17 +138,36 @@ def visualize_buckets(data, timestep: float):
         print(f"No entries found for timestep={timestep}")
         
 
-def get_closest_timestep(game_completed, tolerance, default: int = None):
-    num = round(math.floor(game_completed * 1000) / 1000, 3)
-    last_digit = (num - round(math.floor(num * 100) / 100, 3)) * 1000
-    if last_digit >= 5:
-        closest_lower_step = math.floor(num * 100) / 100 + 0.005
-    else:
-        closest_lower_step = math.floor(num * 100) / 100
-    if closest_lower_step + tolerance > game_completed:
-        return closest_lower_step
-    else:
-        return default if default else closest_lower_step + 0.005
+def get_closest_timestep(game_completed, steps, tolerance, default: int = None):
+    """
+    - Binary search to find the lower and upper bound for the game completed (l <= game_completed <= u)
+    - Then check if l + tolerance >= game_completed, in which case, assign it to l. Otherwise take upper bound or default value
+    """
+    if not(0 <= game_completed <= 1): raise ValueError("game_completed must be between 0 and 1.")
+    steps_lst = []
+    i = 0
+    while round(i, len(str(steps)) - 2) < round(1 + steps, len(str(steps)) - 2):
+        steps_lst.append(round(i, len(str(steps)) - 2))
+        i += steps
+    steps_lst[-1] = 1
+    l = 0
+    r = len(steps_lst) - 1
+    while l < r - 1:
+        print(l, steps_lst[l], steps_lst[r], r)
+        candidate = math.ceil((l + r) / 2)
+        if steps_lst[candidate] == game_completed:
+            l = candidate
+            r = candidate
+        elif steps_lst[candidate] > game_completed:
+            r = candidate
+        else:
+            l = candidate
+        print(l, r)
+    print(l, steps_lst[l], steps_lst[r], r)
+    if steps_lst[l] + tolerance >= game_completed:
+        return steps_lst[l]
+    else: return default if default is not None else steps_lst[r]
+    
 
 def assign_model(df, tolerance: float = 0.005):
     """
@@ -160,10 +182,10 @@ def assign_model(df, tolerance: float = 0.005):
 
 
 if __name__ == "__main__":
-    # data = load_data(root_dir = "dataset_interpolated_fixed")
-    # for key, df_list in data.items():
-    #     if key == "2018":
-    #         print(key)
-    #         visualize_buckets(data[key], timestep=0.99)
-    x = get_closest_timestep(0.01, 0.001)
+    data = load_data(root_dir = "dataset_interpolated_fixed")
+    for key, df_list in data.items():
+        if key == "2018":
+            print(key)
+            visualize_buckets(data[key], timestep=0.99)
+    x = get_closest_timestep(0.95, 0.005, 0.002)
     print(x)
