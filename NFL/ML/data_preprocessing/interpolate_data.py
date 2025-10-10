@@ -61,7 +61,7 @@ def interpolate_data(data, steps=0.005):
             row = data.iloc[[max(1, j - 1)]].copy()
             row["timestep"] = new_game_completed[i]
             new_df = pd.concat([new_df, row], ignore_index=True)
-
+    new_df = assign_model(new_df, 0.005, 0.002, False)
     return new_df
 
 def save_data(df, data_dir, filename):

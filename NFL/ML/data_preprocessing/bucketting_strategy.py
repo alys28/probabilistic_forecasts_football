@@ -4,6 +4,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Tuple, List
 import math
+from pandas.core.dtypes.dtypes import time
 import pytest
 
 
@@ -153,7 +154,6 @@ def get_closest_timestep(game_completed, steps, tolerance, default: int = None):
     l = 0
     r = len(steps_lst) - 1
     while l < r - 1:
-        print(l, steps_lst[l], steps_lst[r], r)
         candidate = math.ceil((l + r) / 2)
         if steps_lst[candidate] == game_completed:
             l = candidate
@@ -162,21 +162,20 @@ def get_closest_timestep(game_completed, steps, tolerance, default: int = None):
             r = candidate
         else:
             l = candidate
-        print(l, r)
-    print(l, steps_lst[l], steps_lst[r], r)
     if steps_lst[l] + tolerance >= game_completed:
         return steps_lst[l]
-    else: return default if default is not None else steps_lst[r]
+    else: return default if (default is not None) else steps_lst[r]
     
 
-def assign_model(df, tolerance: float = 0.005):
+def assign_model(df, steps, tolerance: float = 0.005, timestep_assigned_default = True):
     """
     Assign a model (i.e. the timestep associated with the model) to each row of the data so that the data is properly allocated across models.
+    If timestep_assigned_default is True, then it will take the value of timestep as the model.
     """
-    for row in df.iterrows():
+    for i, row in df[1:].iterrows():
         game_completed = row["game_completed"]
         default = row["timestep"]
-        row["model"] = get_closest_timestep(game_completed, tolerance, default)
+        df.loc[i, "model"] = get_closest_timestep(game_completed, steps, tolerance, default = default if timestep_assigned_default else None)
     return df
         
 
@@ -187,5 +186,5 @@ if __name__ == "__main__":
         if key == "2018":
             print(key)
             visualize_buckets(data[key], timestep=0.99)
-    x = get_closest_timestep(0.95, 0.005, 0.002)
-    print(x)
+    # x = get_closest_timestep(0.95, 0.005, 0.002)
+    # print(x)

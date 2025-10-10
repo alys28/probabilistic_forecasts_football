@@ -1,6 +1,7 @@
 import pandas as pd
 import requests
 import os
+from bucketting_strategy import assign_model
 # Features to use: possession, timeouts_left_home, timeouts_left_away, score_difference, time_left_in_quarter, quarter, end.yardsToEndzone, end.down, end.distance, field_position_shift, type.id
 def get_nfl_team_ids():
     """Fetch NFL team IDs and abbreviations from ESPN API"""
@@ -325,9 +326,16 @@ if __name__ == "__main__":
     #                 abbr.add(team)
     #     print(abbr)
     # print("FINAL:", abbr)
-    directory = "dataset_interpolated_fixed/2024"
+    directory = "dataset_interpolated_fixed/2024_demo"
+    for filename in os.listdir(directory):
+        if filename.endswith('.csv'):
+            file_path = os.path.join(directory, filename)
+            df = pd.read_csv(file_path)
+            df = assign_model(df, 0.005, 0.002, False)
+            df.to_csv(file_path, index=False)
+            print("Processed", file_path)
     # delete_overtime_files(directory)
-    process_directory(directory, team_dict)
-    get_overtime_files(directory)
-    ignore_overtime_periods(directory)
-    get_overtime_files(directory)
+    # process_directory(directory, team_dict)
+    # get_overtime_files(directory)
+    # ignore_overtime_periods(directory)
+    # get_overtime_files(directory)

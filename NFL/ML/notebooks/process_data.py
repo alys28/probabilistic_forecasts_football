@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import torch
 from collections import defaultdict
 
-def load_data(interpolated_dir, years, history_length, features, label_feature, replace_nan_val = 0):
+def load_data(interpolated_dir, years, history_length, features, label_feature, replace_nan_val = 0, train = True):
     training_data = defaultdict(list)
     for folder in os.listdir(interpolated_dir):
         folder_path = os.path.join(interpolated_dir, folder)
@@ -57,7 +57,10 @@ def load_data(interpolated_dir, years, history_length, features, label_feature, 
                                 final_rows_for_timestep = np.concatenate([history_rows, current_row_np], axis=0)
                             else:
                                 final_rows_for_timestep = current_row_np.reshape(-1)
-                            training_data[round(current_row["timestep"], 3)].append({"rows": final_rows_for_timestep, "label": label_float})
+                            if train:
+                                training_data[round(current_row["model"], 3)].append({"rows": final_rows_for_timestep, "label": label_float})
+                            else:
+                                training_data[round(current_row["timestep"], 3)].append({"rows": final_rows_for_timestep, "label": label_float, "model": round(current_row["model"], 3)})
                      
             else: 
                 print("skipping ", folder)
@@ -109,6 +112,7 @@ def setup_models_DL(features_data, MODEL, *args, **kwargs):
         models[timestep] = model
     return models
 
+# DEPRECATED
 def load_test_data(interpolated_dir, test = [2023, 2024]):
     test_folders = {}
     for folder in os.listdir(interpolated_dir):
@@ -136,6 +140,7 @@ def load_test_data(interpolated_dir, test = [2023, 2024]):
                 test_folders[folder] = test_data
     return test_folders
 
+# DEPRECATED
 def test_feature_selection(data, features, replace_nan_val = 0):
     # Given the features of the data, return data such that each row is an array of the values of the features
     # The data is a dictionary where the key is the timestep and the value is a list of rows
@@ -149,19 +154,27 @@ def test_feature_selection(data, features, replace_nan_val = 0):
             feature_data[file].append(new_row)
     return feature_data
 
-def plot_accuracy(models, tests, title=""):
-    # Test accuracy of model for each timestep on test data and plot
+def plot_accuracy(models, test_data, title=""):
+    f"""
+    Test accuracy of model for each timestep on test data and plot
+    Args:
+    - models: Dict[float: MODEL_TYPE] where the keys are timesteps between 0 and 1
+    - test_data: Dict[float: Dict[str: np.array, str: float, model: float]], coming from load_data (with train = False)
+    - (Optional) title: Plot Title
+    """
     accuracies = []
     timesteps = []
-
-    for timestep, i in zip(models, tests.keys()):
-        model = models[timestep]
-        test = np.array(tests[i])
-        y_test = test[:,0]
-        X_test = test[:,1:]
-        accuracy = model.score(X_test, y_test)
-        
-        accuracies.append(accuracy)
+    for timestep in test_data.keys():
+        correct = 0
+        total = 0
+        for entry in timestep:
+            X_test = entry["rows"]
+            y_test = entry["label"]
+            model = models[entry["model"]]
+            accuracy = model.score(X_test, y_test) # will be either 0 or 1 (since it's only 1 entry tested at a time)
+            total += 1
+            correct = accuracy
+        accuracies.append(correct / total)
         timesteps.append(timestep)
     
     plt.figure(figsize=(10, 6))
@@ -173,19 +186,23 @@ def plot_accuracy(models, tests, title=""):
     plt.grid(True)
     plt.show()
 
-def plot_loss(models, tests, title=""):
+def plot_loss(models, test_data, title=""):
     # Test BCE loss of model for each timestep on test data and plot
     losses = []
     timesteps = []
-
-    for timestep, i in zip(models, tests.keys()):
-        model = models[timestep]
-        test = np.array(tests[i])
-        y_test = test[:,0]
-        X_test = test[:,1:]
-        
-        # Calculate BCE loss
-        y_pred = model.predict_proba(X_test)[:, 1]
+    for timestep in test_data.keys():
+        y_preds = []
+        y_tests = []
+        for entry in timestep:
+            X_test = entry["rows"]
+            y_test = entry["label"]
+            model = models[entry["model"]]
+            # Calculate BCE loss
+            y_pred = model.predict_proba(X_test)[:, 1]
+            y_preds.append(y_pred)
+            y_tests.append(y_test)
+        y_preds = np.array(y_preds)
+        y_tests = np.array(y_tests)
         loss = -np.mean(y_test * np.log(y_pred + 1e-15) + (1-y_test) * np.log(1-y_pred + 1e-15))
         
         losses.append(loss)
@@ -239,8 +256,8 @@ def write_predictions(models, interpolated_dir, years, history_length, features,
                             else:
                                 final_rows_for_timestep = current_row_np.reshape(-1)
                             # Do inference
-                            timestep = round(current_row["timestep"], 3)
-                            model = models[timestep]
+                            model_assigned = round(current_row["model"], 3)
+                            model = models[model_assigned]
                             X_test = np.expand_dims(final_rows_for_timestep, axis=0)
                             pred = model.predict_proba(X_test)[0][1]
                             df.at[idx, phat_b] = pred
