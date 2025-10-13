@@ -1,6 +1,7 @@
 import pandas as pd
 import requests
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from bucketting_strategy import assign_model
 # Features to use: possession, timeouts_left_home, timeouts_left_away, score_difference, time_left_in_quarter, quarter, end.yardsToEndzone, end.down, end.distance, field_position_shift, type.id
 def get_nfl_team_ids():
@@ -280,6 +281,26 @@ def get_overtime_files(directory):
             if has_overtime(file_path) or has_overtime_improved(file_path): 
                 print(f"Overtime: {filename}")
 
+
+def process_year_directory(directory, year):
+    """Process all CSV files in a specific year directory"""
+    year_path = os.path.join(directory, year)
+    processed_count = 0
+    
+    for filename in os.listdir(year_path):
+        if filename.endswith('.csv'):
+            file_path = os.path.join(year_path, filename)
+            try:
+                df = pd.read_csv(file_path)
+                df = assign_model(df, 0.005, 0.002, False)
+                df.to_csv(file_path, index=False)
+                processed_count += 1
+                print(f"Processed {file_path}")
+            except Exception as e:
+                print(f"Error processing {file_path}: {e}")
+    
+    return f"Year {year}: Processed {processed_count} files"
+
 if __name__ == "__main__": 
     team_dict = {
     '22': ['ARI', 'ARZ'],
@@ -315,27 +336,21 @@ if __name__ == "__main__":
     '10': ['TEN'],
     '28': ['WSH', 'WAS']
 }
-    # directories = ["dataset/2018", "dataset/2019", "dataset/2020", "dataset/2021", "dataset/2022", "dataset/2023", "dataset/2024"]
-    # abbr = set()
-    # for directory in directories:
-    #     for filename in os.listdir(directory):
-    #         if filename.endswith('.csv'):
-    #             file_path = os.path.join(directory, filename)
-    #             df = pd.read_csv(file_path)
-    #             for team in extract_timeout_teams(df):
-    #                 abbr.add(team)
-    #     print(abbr)
-    # print("FINAL:", abbr)
-    directory = "dataset_interpolated_fixed/2024_demo"
-    for filename in os.listdir(directory):
-        if filename.endswith('.csv'):
-            file_path = os.path.join(directory, filename)
-            df = pd.read_csv(file_path)
-            df = assign_model(df, 0.005, 0.002, False)
-            df.to_csv(file_path, index=False)
-            print("Processed", file_path)
-    # delete_overtime_files(directory)
-    # process_directory(directory, team_dict)
-    # get_overtime_files(directory)
-    # ignore_overtime_periods(directory)
-    # get_overtime_files(directory)
+    directory = "dataset_interpolated_fixed"
+    
+    # Get all year directories
+    years = [year for year in os.listdir(directory) if os.path.isdir(os.path.join(directory, year))]
+    
+    # Process years in parallel
+    with ThreadPoolExecutor(max_workers=min(len(years), 4)) as executor:
+        # Submit all year processing tasks
+        future_to_year = {executor.submit(process_year_directory, directory, year): year for year in years}
+        
+        # Process completed tasks as they finish
+        for future in as_completed(future_to_year):
+            year = future_to_year[future]
+            try:
+                result = future.result()
+                print(result)
+            except Exception as e:
+                print(f"Year {year} generated an exception: {e}")
