@@ -17,7 +17,7 @@ class BrierLoss(nn.Module):
     def forward(self, predictions, targets):
         """
         Calculate Brier Score Loss
-        
+           
         Args:
             predictions: Predicted probabilities (0-1 range)
             targets: True binary labels (0 or 1)

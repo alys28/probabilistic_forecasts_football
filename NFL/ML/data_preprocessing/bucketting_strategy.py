@@ -167,7 +167,7 @@ def get_closest_timestep(game_completed, steps, tolerance, default: int = None):
     else: return default if (default is not None) else steps_lst[r]
     
 
-def assign_model(df, steps, tolerance: float = 0.005, timestep_assigned_default = True):
+def assign_model(df, steps, tolerance: float = 0.001, timestep_assigned_default = True):
     """
     Assign a model (i.e. the timestep associated with the model) to each row of the data so that the data is properly allocated across models.
     If timestep_assigned_default is True, then it will take the value of timestep as the model.

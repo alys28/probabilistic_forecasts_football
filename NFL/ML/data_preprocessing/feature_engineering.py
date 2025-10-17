@@ -292,7 +292,7 @@ def process_year_directory(directory, year):
             file_path = os.path.join(year_path, filename)
             try:
                 df = pd.read_csv(file_path)
-                df = assign_model(df, 0.005, 0.002, False)
+                df = assign_model(df, 0.005, 0.001, True)
                 df.to_csv(file_path, index=False)
                 processed_count += 1
                 print(f"Processed {file_path}")

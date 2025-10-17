@@ -359,7 +359,7 @@ class DirectClassifier:
         return filename
     
     @classmethod
-    def load_model(cls, filepath, device=None):
+    def load_model(model_class, filepath, device=None):
         """
         Load a saved DirectClassifier model
         """
@@ -385,7 +385,7 @@ class DirectClassifier:
         
         # Get scaler info from checkpoint
         use_scaler = checkpoint.get('use_scaler', True)
-        classifier = cls(direct_network, 1, optimizer, criterion, device, use_scaler=use_scaler)
+        classifier = model_class(direct_network, 1, optimizer, criterion, device, use_scaler=use_scaler)
         
         # Restore scaler if it exists
         if use_scaler and 'scaler' in checkpoint:
@@ -494,8 +494,6 @@ def setup_direct_models(training_data, test_data=None, num_models=20, epochs=100
             hidden_dim=hidden_dim,
             dropout_rate=0.2  # Lower dropout for smaller network
         )
-        print(f"Created neural network with input_dim={X_train.shape[1]}, hidden_dim={hidden_dim}")
-        # criterion = nn.BCELoss()
         criterion = nn.MSELoss()
         # Slightly higher learning rate for smaller network
         optimizer = torch.optim.AdamW(direct_network.parameters(), lr=lr, weight_decay=0.01)
