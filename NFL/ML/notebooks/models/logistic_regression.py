@@ -1,6 +1,5 @@
 from sklearn.linear_model import LogisticRegression
 import numpy as np
-import optuna
 from models.Model import Model
 
 
@@ -33,6 +32,7 @@ class LogisticRegressionModel(Model):
             'penalty': trial.suggest_categorical('penalty', ['l1', 'l2', 'elasticnet']),
             'solver': trial.suggest_categorical('solver', ['liblinear', 'lbfgs', 'saga']),
             'max_iter': trial.suggest_int('max_iter', 1000, 5000),
+            'l1_ratio': trial.suggest_float('l1_ratio', 0, 1),
         }
     
     def _fixed_params(self):
@@ -46,9 +46,11 @@ class LogisticRegressionModel(Model):
         model_params = {**params, **self._fixed_params()}
         
         # Handle solver-penalty compatibility
-        if model_params['penalty'] == 'elasticnet' and model_params['solver'] != 'saga':
+        if model_params['penalty'] == 'elasticnet':
             model_params['solver'] = 'saga'
-        elif model_params['penalty'] == 'l1' and model_params['solver'] not in ['liblinear', 'saga']:
+        else:
+            model_params['l1_ratio'] = None
+        if model_params['penalty'] == 'l1' and model_params['solver'] not in ['liblinear', 'saga']:
             model_params['solver'] = 'liblinear'
         
         model = LogisticRegression(**model_params)
@@ -78,6 +80,10 @@ class LogisticRegressionModel(Model):
         # Perform Bayesian optimization if requested
         if self.optimize_hyperparams:
             best_params = self.optimize_hyperparameters(X_train, y_train, X_val, y_val, n_trials=self.n_trials)
+            if best_params['penalty'] == 'elasticnet' and best_params['solver'] != 'saga':
+                best_params['solver'] = 'saga'
+            elif best_params['penalty'] == 'l1' and best_params['solver'] not in ['liblinear', 'saga']:
+                best_params['solver'] = 'liblinear'
             self.params.update(best_params)
         
         # Train final model

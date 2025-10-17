@@ -6,6 +6,7 @@ from sklearn.isotonic import IsotonicRegression
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler
 import optuna
+optuna.logging.set_verbosity(optuna.logging.CRITICAL)
 
 
 class Model(ABC):
