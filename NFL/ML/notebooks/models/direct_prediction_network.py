@@ -5,6 +5,8 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import os
 from sklearn.model_selection import train_test_split
+import optuna
+import logging
 
 class NFLDirectDataset(Dataset):
     def __init__(self, data_x, data_y, device='cpu'):
@@ -27,35 +29,38 @@ class NFLDirectDataset(Dataset):
         return self.data_x[idx], self.data_y[idx]
 
 class DirectPredictionNetwork(nn.Module):
-    def __init__(self, input_dim=10, hidden_dim=64, dropout_rate=0.2):
+    def __init__(self, input_dim=10, hidden_dims=None, dropout_rate=0.2, num_layers=None):
         super(DirectPredictionNetwork, self).__init__()
         
-        # Optimized architecture for NFL play vectors
-        # Simple network without batch normalization to avoid single-batch issues
-        self.network = nn.Sequential(
-            # First layer: expand from input_dim to hidden_dim
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout_rate),
+        # Default architecture if not specified
+        if hidden_dims is None:
+            hidden_dims = [64, 32, 16, 8]
+        if num_layers is None:
+            num_layers = len(hidden_dims)
+        
+        # Ensure we don't exceed the number of provided hidden dimensions
+        num_layers = min(num_layers, len(hidden_dims))
+        
+        # Build dynamic network architecture
+        layers = []
+        prev_dim = input_dim
+        
+        for i in range(num_layers):
+            # Add linear layer
+            layers.append(nn.Linear(prev_dim, hidden_dims[i]))
+            layers.append(nn.ReLU(inplace=True))
             
-            # Second layer: compress to smaller representation
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout_rate * 0.5),  # Reduced dropout in later layers
-            nn.Linear(hidden_dim // 2, hidden_dim // 4),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout_rate * 0.5),  # Reduced dropout in later layers
-            nn.Linear(hidden_dim // 4, hidden_dim // 8),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout_rate * 0.5),  # Reduced dropout in later layers
-            nn.Linear(hidden_dim // 8, hidden_dim // 16),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout_rate * 0.5),  # Reduced dropout in later layers
+            # Add dropout (reduce dropout in later layers)
+            dropout_factor = 1.0 if i == 0 else 0.5
+            layers.append(nn.Dropout(dropout_rate * dropout_factor))
             
-            # Output layer - single neuron for binary classification
-            nn.Linear(hidden_dim // 16, 1),
-            nn.Sigmoid()  # Output probability between 0 and 1
-        )
+            prev_dim = hidden_dims[i]
+        
+        # Output layer - single neuron for binary classification
+        layers.append(nn.Linear(prev_dim, 1))
+        layers.append(nn.Sigmoid())  # Output probability between 0 and 1
+        
+        self.network = nn.Sequential(*layers)
         
         # Initialize weights for better convergence with small input
         self._initialize_weights()
@@ -80,9 +85,22 @@ class DirectPredictionNetwork(nn.Module):
         return self.network(x)
 
 class DirectClassifier:
-    def __init__(self, model, epochs, optimizer, criterion, device, scheduler=None, use_scaler=True):
+    def __init__(self, model, epochs, optimizer, criterion, device, scheduler=None, use_scaler=True,
+                 optimize_hyperparams=False, n_trials=30, optimization_epochs=None):
         """
-        Direct prediction classifier
+        Direct prediction classifier with optional hyperparameter optimization
+        
+        Args:
+            model: DirectPredictionNetwork model
+            epochs: Number of training epochs
+            optimizer: PyTorch optimizer
+            criterion: Loss function
+            device: PyTorch device
+            scheduler: Learning rate scheduler (optional)
+            use_scaler: Whether to use feature scaling
+            optimize_hyperparams: Whether to run Optuna optimization
+            n_trials: Number of Optuna trials (if optimization enabled)
+            optimization_epochs: Epochs per trial (if None, uses epochs//2)
         """
         self.model = model.to(device)
         self.epochs = epochs
@@ -91,6 +109,11 @@ class DirectClassifier:
         self.device = device
         self.scheduler = scheduler
         self.use_scaler = use_scaler
+        
+        # Optimization parameters
+        self.optimize_hyperparams = optimize_hyperparams
+        self.n_trials = n_trials
+        self.optimization_epochs = optimization_epochs if optimization_epochs else max(epochs // 2, 10)
         
         # Initialize scaler if needed
         if self.use_scaler:
@@ -108,22 +131,61 @@ class DirectClassifier:
         self.final_val_accuracy = None
         self.best_epoch = None
         self.epochs_trained = None
+        
+        # Optimization results
+        self.optimization_results = None
+        self.best_hyperparams = None
+        self.optuna_study = None
     
-    def fit(self, X, y, val_X=None, val_y=None, batch_size=128):
+    def fit(self, X, y, val_X=None, val_y=None, batch_size=128, verbose = True):
         """
-        Train the direct prediction model
+        Train the direct prediction model with optional hyperparameter optimization
         """
         # Apply scaling if enabled (data is already 2D from setup function)
         if self.use_scaler and not self.scaler_fitted:
-            print("Fitting scaler on training data...")
-            print(f"Training data shape: {X.shape}")
+            # print("Fitting scaler on training data...")
+            # print(f"Training data shape: {X.shape}")
             X_scaled = self.scaler.fit_transform(X)
-            print(f"Scaler fitted with {self.scaler.n_features_in_} features")
+            # print(f"Scaler fitted with {self.scaler.n_features_in_} features")
             self.scaler_fitted = True
         elif self.use_scaler and self.scaler_fitted:
             X_scaled = self.scaler.transform(X)
         else:
             X_scaled = X
+        
+        # Run hyperparameter optimization if enabled
+        if self.optimize_hyperparams and val_X is not None and val_y is not None:
+            print("Running hyperparameter optimization...")
+            best_params, best_value = self._run_hyperparameter_optimization(X_scaled, y, val_X, val_y)
+            
+            # Recreate model with best parameters
+            hidden_dims = [best_params[f'hidden_dim_{i}'] for i in range(best_params['num_layers'])]
+            # Create new model with optimized architecture
+            self.model = DirectPredictionNetwork(
+                input_dim=X_scaled.shape[1],
+                hidden_dims=hidden_dims,
+                dropout_rate=best_params['dropout_rate'],
+                num_layers=best_params['num_layers']
+            ).to(self.device)
+            
+            # Update optimizer with best parameters
+            self.optimizer = torch.optim.AdamW(
+                self.model.parameters(),
+                lr=best_params['learning_rate'],
+                weight_decay=best_params['weight_decay']
+            )
+            
+            # Update scheduler
+            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                self.optimizer, mode='min', factor=0.8, patience=3
+            )
+            
+            # Update batch size
+            batch_size = best_params['batch_size']
+            if verbose:
+                print(f"Model recreated with optimized parameters. Best validation accuracy: {best_value:.4f}")
+        
+        # Continue with normal training
         
         train_dataset = NFLDirectDataset(X_scaled, y, device=self.device)
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -146,7 +208,7 @@ class DirectClassifier:
         patience = 10
         best_epoch = 0
         
-        print(f"Starting training on device: {self.device}")
+        # print(f"Starting training on device: {self.device}")
         
         for epoch in range(self.epochs):
             # Training
@@ -203,11 +265,13 @@ class DirectClassifier:
                 else:
                     patience_counter += 1
                     if patience_counter >= patience:
-                        print(f"Early stopping at epoch {epoch+1}")
-                        print(f"Best epoch: {best_epoch}, Train Acc: {self.final_train_accuracy:.4f}, Train Loss: {self.final_train_loss:.4f}, Val Acc: {self.final_val_accuracy:.4f}, Val Loss: {self.final_val_loss:.4f}")
+                        if verbose:
+                            print(f"Early stopping at epoch {epoch+1}")
+                            print(f"Best epoch: {best_epoch}, Train Acc: {self.final_train_accuracy:.4f}, Train Loss: {self.final_train_loss:.4f}, Val Acc: {self.final_val_accuracy:.4f}, Val Loss: {self.final_val_loss:.4f}")
                         if best_model_state is not None:
                             self.model.load_state_dict(best_model_state)
-                            print(f"Restored model from best epoch {best_epoch} with val_loss: {best_val_loss:.6f}")
+                            if verbose:
+                                print(f"Restored model from best epoch {best_epoch} with val_loss: {best_val_loss:.6f}")
                         break
             else:
                 # print(f"Epoch {epoch+1}/{self.epochs}, Train Loss: {avg_train_loss:.6f}, Train Acc: {train_accuracy:.4f}")
@@ -221,6 +285,106 @@ class DirectClassifier:
         # Store final training info
         self.best_epoch = best_epoch
         self.epochs_trained = epoch + 1
+    
+    def _optuna_objective(self, trial, X_train, y_train, X_val, y_val, input_dim):
+        """
+        Optuna objective function for hyperparameter optimization
+        """
+        # Define hyperparameter search space
+        learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True)
+        dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
+        num_layers = trial.suggest_int('num_layers', 2, 6)
+        
+        # Define hidden layer dimensions
+        hidden_dims = []
+        for i in range(num_layers):
+            dim = trial.suggest_int(f'hidden_dim_{i}', 16, 256)
+            hidden_dims.append(dim)
+        
+        # Ensure decreasing architecture (optional constraint)
+        if trial.suggest_categorical('enforce_decreasing', [True, False]):
+            hidden_dims = sorted(hidden_dims, reverse=True)
+        
+        # Weight decay
+        weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-2, log=True)
+        
+        # Batch size
+        batch_size = trial.suggest_categorical('batch_size', [16, 32, 64, 128])
+        
+        # Create model with suggested hyperparameters
+        model = DirectPredictionNetwork(
+            input_dim=input_dim,
+            hidden_dims=hidden_dims,
+            dropout_rate=dropout_rate,
+            num_layers=num_layers
+        )
+        
+        # Setup optimizer and criterion
+        criterion = nn.BCELoss()
+        optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode='min', factor=0.8, patience=3
+        )
+        
+        # Create temporary classifier for this trial
+        temp_classifier = DirectClassifier(model, self.optimization_epochs, optimizer, criterion, 
+                                        self.device, scheduler, use_scaler=True)
+        
+        # Train the model
+        temp_classifier.fit(X_train, y_train, val_X=X_val, val_y=y_val, batch_size=batch_size, verbose=False)
+        
+        # Return validation accuracy (Optuna maximizes by default)
+        val_loss = temp_classifier.final_val_loss if temp_classifier.final_val_loss else 0.0
+        
+        # Report intermediate results for pruning
+        trial.report(val_loss, step=self.optimization_epochs)
+        
+        # Handle pruning based on intermediate results
+        if trial.should_prune():
+            raise optuna.exceptions.TrialPruned()
+        
+        return val_loss
+    
+    def _run_hyperparameter_optimization(self, X, y, val_X, val_y):
+        """
+        Run Optuna hyperparameter optimization
+        """
+        print(f"Starting hyperparameter optimization with {self.n_trials} trials...")
+        
+        # Configure Optuna logging
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
+        
+        # Create Optuna study
+        study = optuna.create_study(
+            direction='minimize',
+            study_name=f"nfl_direct_optuna_{id(self)}",
+            pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=10)
+        )
+        
+        # Run optimization
+        study.optimize(
+            lambda trial: self._optuna_objective(trial, X, y, val_X, val_y, X.shape[1]),
+            n_trials=self.n_trials,
+            show_progress_bar=True
+        )
+        
+        # Get best parameters
+        best_params = study.best_params
+        best_value = study.best_value
+        
+        print(f"Best validation accuracy: {best_value:.4f}")
+        print(f"Best parameters: {best_params}")
+        
+        # Store optimization results
+        self.optimization_results = {
+            'best_params': best_params,
+            'best_value': best_value,
+            'study': study
+        }
+        self.best_hyperparams = best_params
+        self.optuna_study = study
+        
+        return best_params, best_value
     
     def _evaluate(self, data_loader):
         """Helper method for evaluation"""
@@ -264,6 +428,12 @@ class DirectClassifier:
         """
         Make predictions on new data
         """
+        pred = self.predict_proba(x)[0][1]
+    
+    def predict_proba(self, x):
+        """
+        Return prediction probabilities (same as predict for this model)
+        """
         # Ensure input is flattened to 2D if it's 3D
         if len(x.shape) == 3:
             x = x.reshape(x.shape[0], -1)
@@ -278,16 +448,9 @@ class DirectClassifier:
         with torch.no_grad():
             x_tensor = torch.FloatTensor(x_scaled).to(self.device)
             output = self.model(x_tensor)
-            return output.cpu().numpy()
-    
-    def predict_proba(self, x):
-        """
-        Return prediction probabilities (same as predict for this model)
-        """
-        pred = self.predict(x).flatten()
-        # Return in sklearn format: [[prob_class_0, prob_class_1], ...]
-        return np.column_stack([1 - pred, pred])
-    
+            pred = output.cpu().numpy().flatten()
+            return np.column_stack([1 - pred, pred])
+
     def score(self, X, y):
         """
         Return the mean accuracy on the given test data and labels.
@@ -300,7 +463,7 @@ class DirectClassifier:
             float: Mean accuracy score
         """
         # Get predictions (scaling is handled internally in predict method)
-        y_pred_proba = self.predict(X)
+        y_pred_proba = self.predict_proba(X)[:,1]
         y_pred = (y_pred_proba > 0.5).astype(float).flatten()
         
         # Convert y to binary if needed (in case it's score differences)
@@ -320,6 +483,24 @@ class DirectClassifier:
             return self.scaler
         else:
             return None
+    
+    def get_optimization_results(self):
+        """
+        Return optimization results if available
+        """
+        return self.optimization_results
+    
+    def get_best_hyperparams(self):
+        """
+        Return best hyperparameters if optimization was run
+        """
+        return self.best_hyperparams
+    
+    def get_optuna_study(self):
+        """
+        Return Optuna study object if optimization was run
+        """
+        return self.optuna_study
     
     def save_model(self, filepath_prefix, timesteps_range):
         """
@@ -343,16 +524,28 @@ class DirectClassifier:
             'final_val_accuracy': self.final_val_accuracy,
             'model_config': {
                 'input_dim': list(self.model.network.children())[0].in_features,
-                'hidden_dim': list(self.model.network.children())[0].out_features
+                'hidden_dims': [layer.out_features for layer in self.model.network.children() 
+                               if isinstance(layer, nn.Linear)][:-1],  # Exclude output layer
+                'dropout_rate': self.model.network[2].p,  # Get dropout rate from first dropout layer
+                'num_layers': len([layer for layer in self.model.network.children() 
+                                 if isinstance(layer, nn.Linear)]) - 1  # Exclude output layer
             },
             'use_scaler': self.use_scaler,
-            'scaler_fitted': self.scaler_fitted
+            'scaler_fitted': self.scaler_fitted,
+            'optimize_hyperparams': self.optimize_hyperparams,
+            'n_trials': self.n_trials,
+            'optimization_epochs': self.optimization_epochs
         }
         
         # Save scaler if it exists and is fitted
         if self.use_scaler and self.scaler_fitted:
             import pickle
             checkpoint['scaler'] = pickle.dumps(self.scaler)
+        
+        # Save optimization results if available
+        if self.optimization_results is not None:
+            checkpoint['optimization_results'] = self.optimization_results
+            checkpoint['best_hyperparams'] = self.best_hyperparams
         
         torch.save(checkpoint, filename)
         print(f"Direct prediction model saved: {filename}")
@@ -372,7 +565,9 @@ class DirectClassifier:
         model_config = checkpoint['model_config']
         direct_network = DirectPredictionNetwork(
             input_dim=model_config['input_dim'],
-            hidden_dim=model_config['hidden_dim']
+            hidden_dims=model_config.get('hidden_dims', [64, 32, 16, 8]),
+            dropout_rate=model_config.get('dropout_rate', 0.2),
+            num_layers=model_config.get('num_layers', 4)
         )
         
         # Load model state
@@ -385,7 +580,13 @@ class DirectClassifier:
         
         # Get scaler info from checkpoint
         use_scaler = checkpoint.get('use_scaler', True)
-        classifier = model_class(direct_network, 1, optimizer, criterion, device, use_scaler=use_scaler)
+        optimize_hyperparams = checkpoint.get('optimize_hyperparams', False)
+        n_trials = checkpoint.get('n_trials', 30)
+        optimization_epochs = checkpoint.get('optimization_epochs', None)
+        
+        classifier = model_class(direct_network, 1, optimizer, criterion, device, 
+                               use_scaler=use_scaler, optimize_hyperparams=optimize_hyperparams,
+                               n_trials=n_trials, optimization_epochs=optimization_epochs)
         
         # Restore scaler if it exists
         if use_scaler and 'scaler' in checkpoint:
@@ -401,17 +602,24 @@ class DirectClassifier:
         classifier.best_epoch = checkpoint.get('best_epoch')
         classifier.epochs_trained = checkpoint.get('epochs_trained')
         
+        # Restore optimization results if available
+        if 'optimization_results' in checkpoint:
+            classifier.optimization_results = checkpoint['optimization_results']
+            classifier.best_hyperparams = checkpoint.get('best_hyperparams')
+        
         print(f"Direct prediction model loaded from: {filepath}")
         print(f"Best epoch: {classifier.best_epoch}, Val Acc: {classifier.final_val_accuracy:.4f}, Val Loss: {classifier.final_val_loss:.4f}")
         
         return classifier
 
+
 # Example usage and training script
 def setup_direct_models(training_data, test_data=None, num_models=20, epochs=100, lr=0.001, 
-                       batch_size=64, hidden_dim=128, use_scaler=True):
+                       batch_size=64, hidden_dim=128, use_scaler=True, save_model=False,
+                       optimize_hyperparams=False, n_trials=30):
     """
     Setup direct prediction models for each timestep range
-    Optimized for NFL play vectors
+    Optimized for NFL play vectors with optional hyperparameter optimization
     
     Args:
         training_data: Dictionary with timesteps as keys and training data as values
@@ -422,6 +630,9 @@ def setup_direct_models(training_data, test_data=None, num_models=20, epochs=100
         batch_size: Batch size for training
         hidden_dim: Hidden dimension size for neural network
         use_scaler: Whether to scale input features
+        save_model: Whether to save trained models
+        optimize_hyperparams: Whether to run Optuna hyperparameter optimization
+        n_trials: Number of Optuna trials (if optimization enabled)
     
     Returns:
         Dictionary of trained neural network models by timestep range
@@ -491,8 +702,9 @@ def setup_direct_models(training_data, test_data=None, num_models=20, epochs=100
         
         direct_network = DirectPredictionNetwork(
             input_dim=X_train.shape[1],  # Now correctly using flattened dimension
-            hidden_dim=hidden_dim,
-            dropout_rate=0.2  # Lower dropout for smaller network
+            hidden_dims=[hidden_dim, hidden_dim//2, hidden_dim//4, hidden_dim//8],
+            dropout_rate=0.2,  # Lower dropout for smaller network
+            num_layers=4
         )
         criterion = nn.MSELoss()
         # Slightly higher learning rate for smaller network
@@ -501,17 +713,19 @@ def setup_direct_models(training_data, test_data=None, num_models=20, epochs=100
             optimizer, mode='min', factor=0.8, patience=5  # More aggressive scheduling
         )
         
-        # Classifier now handles scaling internally
-        classifier = DirectClassifier(direct_network, epochs, optimizer, criterion, device, scheduler, use_scaler=use_scaler)
+        # Classifier now handles scaling and optimization internally
+        classifier = DirectClassifier(direct_network, epochs, optimizer, criterion, device, scheduler, 
+                                    use_scaler=use_scaler, optimize_hyperparams=optimize_hyperparams, 
+                                    n_trials=n_trials)
         
         # Train the model (scaler is handled internally)
         classifier.fit(X_train, y_train, val_X=X_val, val_y=y_val, batch_size=batch_size)
-        
-        # Save the model
-        model_save_dir = "saved_models"
-        os.makedirs(model_save_dir, exist_ok=True)
-        model_prefix = os.path.join(model_save_dir, "nfl_direct_model")
-        saved_filepath = classifier.save_model(model_prefix, timesteps_range)
+        if save_model: 
+            # Save the model
+            model_save_dir = "saved_models"
+            os.makedirs(model_save_dir, exist_ok=True)
+            model_prefix = os.path.join(model_save_dir, "nfl_direct_model")
+            saved_filepath = classifier.save_model(model_prefix, timesteps_range)
         
         models[timesteps_range[0]] = classifier
         print(f"NFL direct model {i+1}/{num_models} completed")

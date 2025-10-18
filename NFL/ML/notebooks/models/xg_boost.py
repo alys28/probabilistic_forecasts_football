@@ -158,7 +158,7 @@ class LightGBM(Model):
 
 
 
-def setup_xgboost_models(training_data, validation_data, use_calibration = True, optimize_hyperparams=False, n_trials=50):
+def setup_xgboost_models(training_data, validation_data, numeric_features = None, other_features = None, use_calibration = True, optimize_hyperparams=False, n_trials=50):
     """
     Setup LightGBM models with optional Bayesian optimization.
     
@@ -185,7 +185,9 @@ def setup_xgboost_models(training_data, validation_data, use_calibration = True,
         model = LightGBM(
             use_calibration=use_calibration, 
             optimize_hyperparams=optimize_hyperparams,
-            n_trials=n_trials
+            n_trials=n_trials,
+            numeric_features=numeric_features,
+            other_features = other_features
         )
         model.fit(X, y, val_X=X_val, val_y=y_val)
         models[timestep] = model
@@ -200,7 +202,7 @@ def setup_xgboost_models(training_data, validation_data, use_calibration = True,
         val_accuracy = model.score(X_val, y_val)
         
         # Print results with optimization info
-        opt_info = f" (Optimized)" if optimize_hyperparams else ""
+        opt_info = (f" (Optimized)" if optimize_hyperparams else "") + "(Calibrated)" if use_calibration else ""
         print(f"Timestep {timestep:.2%}{opt_info}: Training Loss = {train_loss:.4f}, Accuracy = {train_accuracy:.4f}, Validation Loss = {val_loss:.4f}, Validation Accuracy = {val_accuracy:.4f}")
         
         # Minimal progress indicator

@@ -127,6 +127,7 @@ def load_data(interpolated_dir, years, history_length, features, label_feature, 
                     print(f"  Completed processing {folder}")
             else: 
                 print("skipping ", folder)
+    training_data = dict(sorted(training_data.items()))
     return training_data
 
 def feature_selection(data, features, replace_nan_val = 0):
