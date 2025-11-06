@@ -72,7 +72,7 @@ class LogisticRegressionModel(Model):
         
         # Handle validation split
         if val_X is None and val_y is None:
-            X_train, X_val, y_train, y_val = self.split_data(X_proc, y, test_size=0.25, random_state=42, stratify=True)
+            X_train, X_val, y_train, y_val = self.split_data(X_proc, y, test_size=0.15, random_state=42, stratify=True)
         else:
             X_train, y_train = X_proc, y
             X_val, y_val = self.transform_X(val_X), val_y
@@ -89,11 +89,24 @@ class LogisticRegressionModel(Model):
         # Train final model
         self.model = LogisticRegression(**self.params)
         self.model.fit(X_train, y_train)
-        
         # Fit calibrator if requested
         if self.use_calibration:
             y_val_pred = self.model.predict_proba(X_val)[:, 1]
             self.fit_calibrator(y_val_pred, y_val)
+        # Calculate training loss
+        y_pred = self.model.predict_proba(X_train)[:, 1]  # Get probability predictions
+        train_loss = -np.mean(y_train * np.log(y_pred + 1e-15) + (1-y_pred) * np.log(1-y_pred + 1e-15))  # Binary cross entropy
+        train_accuracy = self.model.score(X_train, y_train)
+
+        y_test_pred = self.model.predict_proba(X_val)[:, 1]
+        test_loss = -np.mean(y_val * np.log(y_test_pred + 1e-15) + (1-y_val) * np.log(1-y_test_pred + 1e-15))  # Binary cross entropy 
+        test_accuracy = self.model.score(X_val, y_val)
+
+        # Print results with optimization info
+        opt_info = f" (Optimized)" if self.optimize_hyperparams else ""
+        cal_info = f" (Calibrated)" if self.use_calibration else ""
+        print(f"{opt_info}{cal_info}: Training Loss = {train_loss:.4f}, Accuracy = {train_accuracy:.4f}, Test Loss = {test_loss:.4f}, Test Accuracy = {test_accuracy:.4f}")
+
     
     def predict(self, X):
         """Make binary predictions"""
@@ -147,8 +160,11 @@ def setup_logistic_regression_models(training_data, test_data, numeric_features,
         X = np.array([row["rows"].reshape(-1) for row in X])
         
         # Prepare test data
-        y_test = np.array([row["label"] for row in test_data[timestep]])
-        X_test = np.array([row["rows"].reshape(-1) for row in test_data[timestep]])
+        X_test = None
+        y_test = None
+        if test_data:
+            y_test = np.array([row["label"] for row in test_data[timestep]])
+            X_test = np.array([row["rows"].reshape(-1) for row in test_data[timestep]])
         
         # Create and train model
         model = LogisticRegressionModel(
@@ -159,20 +175,8 @@ def setup_logistic_regression_models(training_data, test_data, numeric_features,
             optimize_hyperparams=optimize_hyperparams,
             n_trials=n_trials
         )
+        print(f"Timestep {timestep:.2%}", end=" ")
         model.fit(X, y, val_X=X_test, val_y=y_test)
         
-        # Calculate training loss
-        y_pred = model.predict_proba(X)[:, 1]  # Get probability predictions
-        train_loss = -np.mean(y * np.log(y_pred + 1e-15) + (1-y) * np.log(1-y_pred + 1e-15))  # Binary cross entropy
-        train_accuracy = model.score(X, y)
-
-        y_test_pred = model.predict_proba(X_test)[:, 1]
-        test_loss = -np.mean(y_test * np.log(y_test_pred + 1e-15) + (1-y_test) * np.log(1-y_test_pred + 1e-15))  # Binary cross entropy 
-        test_accuracy = model.score(X_test, y_test)
-
-        # Print results with optimization info
-        opt_info = f" (Optimized)" if optimize_hyperparams else ""
-        cal_info = f" (Calibrated)" if use_calibration else ""
-        print(f"Timestep {timestep:.2%}{opt_info}{cal_info}: Training Loss = {train_loss:.4f}, Accuracy = {train_accuracy:.4f}, Test Loss = {test_loss:.4f}, Test Accuracy = {test_accuracy:.4f}")
         models[timestep] = model
     return models

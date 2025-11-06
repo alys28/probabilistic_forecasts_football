@@ -4,6 +4,43 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from bucketting_strategy import assign_model
 # Features to use: possession, timeouts_left_home, timeouts_left_away, score_difference, time_left_in_quarter, quarter, end.yardsToEndzone, end.down, end.distance, field_position_shift, type.id
+
+TEAM_DICT = team_dict = {
+    '22': ['ARI', 'ARZ'],
+    '1': ['ATL'],
+    '33': ['BAL', 'BLT'],
+    '2': ['BUF'],
+    '29': ['CAR'],
+    '3': ['CHI'],
+    '4': ['CIN', 'CIN.'],
+    '5': ['CLE', 'CLV'],
+    '6': ['DAL'],
+    '7': ['DEN'],
+    '8': ['DET'],
+    '9': ['GB'],
+    '34': ['HOU', 'HST'],
+    '11': ['IND'],
+    '30': ['JAX'],
+    '12': ['KC'],
+    '13': ['LV', 'OAK'],
+    '24': ['LAC'],
+    '14': ['LAR', 'LA'],
+    '15': ['MIA'],
+    '16': ['MIN'],
+    '17': ['NE'],
+    '18': ['NO'],
+    '19': ['NYG'],
+    '20': ['NYJ'],
+    '21': ['PHI'],
+    '23': ['PIT'],
+    '25': ['SF'],
+    '26': ['SEA'],
+    '27': ['TB'],
+    '10': ['TEN'],
+    '28': ['WSH', 'WAS']
+}
+
+
 def get_nfl_team_ids():
     """Fetch NFL team IDs and abbreviations from ESPN API"""
     url = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams"
@@ -146,12 +183,10 @@ def add_field_position_shift(df):
     return df
 
 
-def process_file(file_path, team_dict):
+def process_df(df, team_dict):
     '''
-    Process a single CSV file in place
-    '''
-    df = pd.read_csv(file_path)
-    
+    Process a dataframe in place
+    '''    
     # Apply all transformations
     df = add_timeouts(df, team_dict)
     df = add_score_difference(df)
@@ -159,21 +194,8 @@ def process_file(file_path, team_dict):
     df = add_time_left_in_seconds_for_period(df)
     df = add_field_position_shift(df)
     df = add_final_score_difference(df)
-    
     # Overwrite the original file
-    df.to_csv(file_path, index=False)
-    return True
-
-def process_directory(input_dir, team_dict = None):
-    """Process all CSV files in a directory in place"""
-    if not(team_dict):
-        team_dict = get_nfl_team_ids()
-    for filename in os.listdir(input_dir):
-        if filename.endswith('.csv'):
-            file_path = os.path.join(input_dir, filename)
-            process_file(file_path, team_dict)
-        print("Processed ", filename)
-
+    return df 
 
 def extract_timeout_teams(df):
     """
@@ -292,6 +314,7 @@ def process_year_directory(directory, year):
             file_path = os.path.join(year_path, filename)
             try:
                 df = pd.read_csv(file_path)
+                df = process_df(df, TEAM_DICT)
                 df = assign_model(df, 0.005, 0.001, True)
                 df.to_csv(file_path, index=False)
                 processed_count += 1
@@ -302,45 +325,11 @@ def process_year_directory(directory, year):
     return f"Year {year}: Processed {processed_count} files"
 
 if __name__ == "__main__": 
-    team_dict = {
-    '22': ['ARI', 'ARZ'],
-    '1': ['ATL'],
-    '33': ['BAL', 'BLT'],
-    '2': ['BUF'],
-    '29': ['CAR'],
-    '3': ['CHI'],
-    '4': ['CIN', 'CIN.'],
-    '5': ['CLE', 'CLV'],
-    '6': ['DAL'],
-    '7': ['DEN'],
-    '8': ['DET'],
-    '9': ['GB'],
-    '34': ['HOU', 'HST'],
-    '11': ['IND'],
-    '30': ['JAX'],
-    '12': ['KC'],
-    '13': ['LV', 'OAK'],
-    '24': ['LAC'],
-    '14': ['LAR', 'LA'],
-    '15': ['MIA'],
-    '16': ['MIN'],
-    '17': ['NE'],
-    '18': ['NO'],
-    '19': ['NYG'],
-    '20': ['NYJ'],
-    '21': ['PHI'],
-    '23': ['PIT'],
-    '25': ['SF'],
-    '26': ['SEA'],
-    '27': ['TB'],
-    '10': ['TEN'],
-    '28': ['WSH', 'WAS']
-}
     directory = "dataset_interpolated_fixed"
     
     # Get all year directories
     years = [year for year in os.listdir(directory) if os.path.isdir(os.path.join(directory, year))]
-    
+    years = ["2024"] 
     # Process years in parallel
     with ThreadPoolExecutor(max_workers=min(len(years), 4)) as executor:
         # Submit all year processing tasks

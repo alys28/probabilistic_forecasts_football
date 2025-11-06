@@ -2,8 +2,8 @@ import numpy as np
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from kernel_methods.siamese_network import SiameseClassifier, SiameseNetwork
-from kernel_methods.siamese_transformer import SiameseTransformer, SiameseTransformerClassifier
+from metric_learning.siamese_network import SiameseClassifier, SiameseNetwork
+from metric_learning.siamese_transformer import SiameseTransformer, SiameseTransformerClassifier
 from notebooks import process_data
 import torch
 import torch.nn as nn

@@ -52,6 +52,7 @@ class Model(ABC):
             y,
             test_size=test_size,
             random_state=random_state,
+            shuffle=False, # No shuffling because we dont want it to mess up the ordering of the matches (otherwise more data leakage than we would want)
             stratify=y if stratify else None,
         )
 
@@ -75,7 +76,7 @@ class Model(ABC):
         return {}
 
     @abstractmethod
-    def _train_model(self):
+    def _train_model(self, x_train, y_train, x_val, y_val, params):
         pass
 
     # ---------- Preprocessing helpers (numeric scaling + passthrough) ----------
@@ -158,7 +159,6 @@ class Model(ABC):
             raise ValueError("Model must be fitted before making predictions")
         
         # Get probabilities and convert to binary predictions
-
         probs = self.predict_proba(X)[:, 1]
         return (probs > 0.5).astype(int)        
 

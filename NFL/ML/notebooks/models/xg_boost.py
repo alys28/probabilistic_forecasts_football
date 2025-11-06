@@ -150,7 +150,18 @@ class LightGBM(Model):
             raw_preds_cal = self.model.predict(X_val_proc, num_iteration=self.model.best_iteration)
             uncalibrated_probs_cal = self.sigmoid(raw_preds_cal)
             self.fit_calibrator(uncalibrated_probs_cal, y_val)
+        # Calculate training loss
+        y_pred = self.predict(X_train)  # Get probability predictions
+        train_loss = self.brier_loss(y_train, y_pred)
+        train_accuracy = self.score(X_train, y_train)
 
+        y_val_pred = self.predict_proba(X_val)[:, 1]
+        val_loss = Model.brier_loss(y_val, y_val_pred)  # Use Brier score to match objective function
+        val_accuracy = self.score(X_val, y_val)
+
+        print(f"Training Loss = {train_loss:.4f}, Accuracy = {train_accuracy:.4f}, Validation Loss = {val_loss:.4f}, Validation Accuracy = {val_accuracy:.4f}")
+
+    
     def score(self, X, y):
         """Return accuracy score."""
         predictions = self.predict(X)
@@ -158,7 +169,7 @@ class LightGBM(Model):
 
 
 
-def setup_xgboost_models(training_data, validation_data, numeric_features = None, other_features = None, use_calibration = True, optimize_hyperparams=False, n_trials=50):
+def setup_xgboost_models(training_data, validation_data, numeric_features = None, other_features = None, all_features = None, use_calibration = True, optimize_hyperparams=False, n_trials=50):
     """
     Setup LightGBM models with optional Bayesian optimization.
     
@@ -178,8 +189,11 @@ def setup_xgboost_models(training_data, validation_data, numeric_features = None
         X = training_data[timestep]
         y = np.array([row["label"] for row in X])
         X = np.array([row["rows"].reshape(-1) for row in X])
-        y_val = np.array([row["label"] for row in validation_data[timestep]])
-        X_val = np.array([row["rows"].reshape(-1) for row in validation_data[timestep]])
+        X_val = None
+        y_val = None
+        if validation_data:
+            y_val = np.array([row["label"] for row in validation_data[timestep]])
+            X_val = np.array([row["rows"].reshape(-1) for row in validation_data[timestep]])
         
         # Train model with optional Bayesian optimization
         model = LightGBM(
@@ -187,24 +201,14 @@ def setup_xgboost_models(training_data, validation_data, numeric_features = None
             optimize_hyperparams=optimize_hyperparams,
             n_trials=n_trials,
             numeric_features=numeric_features,
-            other_features = other_features
+            other_features = other_features,
+            all_features=all_features
         )
-        model.fit(X, y, val_X=X_val, val_y=y_val)
-        models[timestep] = model
-
-        # Calculate training loss
-        y_pred = model.predict_proba(X)[:, 1]  # Get probability predictions
-        train_loss = Model.brier_loss(y, y_pred)
-        train_accuracy = model.score(X, y)
-
-        y_val_pred = model.predict_proba(X_val)[:, 1]
-        val_loss = Model.brier_loss(y_val, y_val_pred)  # Use Brier score to match objective function
-        val_accuracy = model.score(X_val, y_val)
-        
-        # Print results with optimization info
         opt_info = (f" (Optimized)" if optimize_hyperparams else "") + "(Calibrated)" if use_calibration else ""
-        print(f"Timestep {timestep:.2%}{opt_info}: Training Loss = {train_loss:.4f}, Accuracy = {train_accuracy:.4f}, Validation Loss = {val_loss:.4f}, Validation Accuracy = {val_accuracy:.4f}")
-        
+        print(f"Timestep {timestep:.2%}{opt_info}:", end=" ")
+        model.fit(X, y, val_X=X_val, val_y=y_val)
+        models[timestep] = model        
+        # Print results with optimization info
         # Minimal progress indicator
         if (i + 1) % 50 == 0 or i == len(timesteps) - 1:
             print(f"Completed {i + 1}/{len(timesteps)} timesteps")

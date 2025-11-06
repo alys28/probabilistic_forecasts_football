@@ -303,16 +303,12 @@ class DirectTransformerClassifier:
         """
         Make predictions on new data
         """
-        # Ensure x is 2D for scaler (flatten if needed)
-        if len(x.shape) > 2:
-            x = x.reshape(x.shape[0], -1)  # Flatten to (samples, features)
-        
-        # Apply scaling if enabled
         if self.use_scaler and self.scaler_fitted:
             x_scaled = self.scaler.transform(x)
         else:
             x_scaled = x
         # Reshape to (samples, seq_len, input_dim)
+        print(x.shape)
         x_scaled = x_scaled.reshape(x.shape[0], x.shape[1], x.shape[2])
 
         self.model.eval()
