@@ -36,65 +36,102 @@ class NFLDataset(Dataset):
         self.add_noise = add_noise
         self.noise_std = noise_std
         
-        # Score difference-based categorization
-        def get_game_pattern(final_score_diff):
-            # Categorize games by score difference magnitude
-            abs_diff = abs(final_score_diff)
-            if abs_diff <= 3:
-                return "very_close"  # Field goal or less
-            elif abs_diff <= 7:
-                return "close"  # One touchdown
-            elif abs_diff <= 14:
-                return "moderate"  # Two touchdowns
-            elif abs_diff <= 21:
-                return "large"  # Three touchdowns
-            else:
-                return "blowout"  # More than three touchdowns
+        # Improved similarity calculation based on final score difference
+        def calculate_similarity(score_diff_1, score_diff_2):
+            """
+            Calculate continuous similarity between two game outcomes.
+            Returns value in [0, 1] where 1 = most similar, 0 = most dissimilar.
+            """
+            abs_diff_1 = abs(score_diff_1)
+            abs_diff_2 = abs(score_diff_2)
+            
+            # Similarity based on score difference magnitude
+            # Games with similar final margins are more similar
+            margin_similarity = 1.0 / (1.0 + abs(abs_diff_1 - abs_diff_2) / 7.0)  # Normalize by ~1 TD
+            
+            # Bonus if both games have same outcome direction (both home wins or both away wins)
+            same_direction = (score_diff_1 > 0) == (score_diff_2 > 0)
+            direction_bonus = 0.2 if same_direction else 0.0
+            
+            # Penalty for very different game types (close vs blowout)
+            if (abs_diff_1 < 7 and abs_diff_2 > 21) or (abs_diff_1 > 21 and abs_diff_2 < 7):
+                margin_similarity *= 0.5  # Reduce similarity for very different game types
+            
+            similarity = margin_similarity + direction_bonus
+            return min(1.0, similarity)
         
-        # Group samples by game pattern categories
-        category_groups = {}
-        for i, y in enumerate(self.data_y):
-            cat = get_game_pattern(y.item())
-            if cat not in category_groups:
-                category_groups[cat] = []
-            category_groups[cat].append(i)
+        # Pre-compute similarities for efficient pair selection
+        print("Computing similarity matrix for improved pair construction...")
+        n_samples = len(self.data_x)
+        similarity_matrix = np.zeros((n_samples, n_samples))
+        for i in range(n_samples):
+            for j in range(i + 1, n_samples):
+                sim = calculate_similarity(self.data_y[i].item(), self.data_y[j].item())
+                similarity_matrix[i, j] = sim
+                similarity_matrix[j, i] = sim
         
-        # Create pairs based on categorical similarity
+        # Create pairs with improved strategy
         random.seed(42)  # For reproducibility
+        similarity_threshold = 0.6  # Threshold for positive pairs
         
         for i in range(len(self.data_x)):
-            current_cat = get_game_pattern(self.data_y[i].item())
             pairs_created = 0
             
-            # Create positive pairs (same category)
-            positive_candidates = []
-            if current_cat in category_groups:
-                positive_candidates = [j for j in category_groups[current_cat] if j != i]
+            # Get similarity scores for all other samples
+            similarities = similarity_matrix[i, :]
             
-            # Sample positive pairs
-            num_positive = min(max_pairs_per_sample // 2, len(positive_candidates))
+            # Positive pairs: high similarity (above threshold)
+            positive_candidates = [j for j in range(n_samples) 
+                                 if j != i and similarities[j] >= similarity_threshold]
+            
+            # Sort by similarity and select diverse positive pairs
             if positive_candidates:
-                positive_samples = random.sample(positive_candidates, num_positive)
-                for j in positive_samples:
+                positive_candidates.sort(key=lambda j: similarities[j], reverse=True)
+                # Select top similar pairs, but also include some medium-similarity for diversity
+                num_positive = min(max_pairs_per_sample // 2, len(positive_candidates))
+                # Mix of top similar and random from positive candidates
+                top_k = min(3, len(positive_candidates))
+                selected = positive_candidates[:top_k]
+                if len(positive_candidates) > top_k:
+                    remaining = positive_candidates[top_k:]
+                    selected.extend(random.sample(remaining, min(num_positive - top_k, len(remaining))))
+                for j in selected:
                     self.pairs.append((i, j))
                     pairs_created += 1
             
-            # Create negative pairs (different categories)
-            negative_candidates = []
-            for cat, indices in category_groups.items():
-                if cat != current_cat:
-                    negative_candidates.extend([j for j in indices if j != i])
+            # Negative pairs: low similarity (hard negatives)
+            negative_candidates = [j for j in range(n_samples) 
+                                 if j != i and similarities[j] < similarity_threshold]
             
-            # Sample negative pairs - ensure balance
-            num_negative = min(max_pairs_per_sample - pairs_created, len(negative_candidates))
             if negative_candidates:
-                negative_samples = random.sample(negative_candidates, num_negative)
-                for j in negative_samples:
+                # Hard negative mining: select pairs that are dissimilar but not too easy
+                # Focus on medium-dissimilarity pairs (hard negatives)
+                negative_similarities = [(j, similarities[j]) for j in negative_candidates]
+                negative_similarities.sort(key=lambda x: x[1])  # Sort by similarity (lowest first)
+                
+                # Select hard negatives: not too easy (very dissimilar) but clearly negative
+                # Target similarity range: 0.2 to 0.5 for hard negatives
+                hard_negatives = [j for j, sim in negative_similarities if 0.2 <= sim < 0.5]
+                easy_negatives = [j for j, sim in negative_similarities if sim < 0.2]
+                
+                num_negative = min(max_pairs_per_sample - pairs_created, len(negative_candidates))
+                # Prefer hard negatives, but include some easy ones for balance
+                if hard_negatives:
+                    num_hard = min(num_negative * 2 // 3, len(hard_negatives))
+                    selected_neg = random.sample(hard_negatives, num_hard)
+                    if len(easy_negatives) > 0 and num_negative > num_hard:
+                        selected_neg.extend(random.sample(easy_negatives, 
+                                                          min(num_negative - num_hard, len(easy_negatives))))
+                else:
+                    selected_neg = random.sample(negative_candidates, 
+                                                 min(num_negative, len(negative_candidates)))
+                
+                for j in selected_neg:
                     self.pairs.append((i, j))
         
         # Shuffle pairs for better training
         random.shuffle(self.pairs)
-        print(f"Created {len(self.pairs)} pairs based on categorical similarity")
+        print(f"Created {len(self.pairs)} pairs based on improved continuous similarity")
 
     def __len__(self):
         return len(self.pairs)
@@ -116,26 +153,22 @@ class NFLDataset(Dataset):
         score_diff_1 = y1.item()
         score_diff_2 = y2.item()
         
-        def get_game_pattern(final_score_diff):
-            # Categorize games by score difference magnitude
-            abs_diff = abs(final_score_diff)
-            if abs_diff <= 3:
-                return "very_close"  # Field goal or less
-            elif abs_diff <= 7:
-                return "close"  # One touchdown
-            elif abs_diff <= 14:
-                return "moderate"  # Two touchdowns
-            elif abs_diff <= 21:
-                return "large"  # Three touchdowns
-            else:
-                return "blowout"  # More than three touchdowns
+        # Calculate continuous similarity (same function as in __init__)
+        def calculate_similarity(score_diff_1, score_diff_2):
+            abs_diff_1 = abs(score_diff_1)
+            abs_diff_2 = abs(score_diff_2)
+            margin_similarity = 1.0 / (1.0 + abs(abs_diff_1 - abs_diff_2) / 7.0)
+            same_direction = (score_diff_1 > 0) == (score_diff_2 > 0)
+            direction_bonus = 0.2 if same_direction else 0.0
+            if (abs_diff_1 < 7 and abs_diff_2 > 21) or (abs_diff_1 > 21 and abs_diff_2 < 7):
+                margin_similarity *= 0.5
+            similarity = margin_similarity + direction_bonus
+            return min(1.0, similarity)
         
-        # Calculate similarity based on categorical match
-        cat1 = get_game_pattern(score_diff_1)
-        cat2 = get_game_pattern(score_diff_2)
-        
-        # Binary similarity: 1 if same category, 0 if different
-        label = 1 if cat1 == cat2 else 0
+        # Use continuous similarity as label (for regression) or threshold for binary
+        similarity = calculate_similarity(score_diff_1, score_diff_2)
+        # Convert to binary label with threshold (can also use continuous similarity directly)
+        label = 1.0 if similarity >= 0.6 else 0.0
         return x1.to(self.device), x2.to(self.device), torch.FloatTensor([label]).to(self.device)
     
 class SiameseNetwork(nn.Module):

@@ -55,57 +55,94 @@ class NFLTransformerDataset(Dataset):
         self.data_y = torch.LongTensor(data_y)
         self.pairs = []
         
-        # Simple win/loss classification based on final score difference
-        def get_game_pattern(final_score_diff):
-            if final_score_diff > 0:
-                return "win"
-            else:
-                return "loss"
+        # Improved similarity calculation based on final score difference
+        def calculate_similarity(score_diff_1, score_diff_2):
+            """
+            Calculate continuous similarity between two game outcomes.
+            Returns value in [0, 1] where 1 = most similar, 0 = most dissimilar.
+            """
+            abs_diff_1 = abs(score_diff_1)
+            abs_diff_2 = abs(score_diff_2)
+            
+            # Similarity based on score difference magnitude
+            margin_similarity = 1.0 / (1.0 + abs(abs_diff_1 - abs_diff_2) / 7.0)
+            
+            # Bonus if both games have same outcome direction
+            same_direction = (score_diff_1 > 0) == (score_diff_2 > 0)
+            direction_bonus = 0.2 if same_direction else 0.0
+            
+            # Penalty for very different game types (close vs blowout)
+            if (abs_diff_1 < 7 and abs_diff_2 > 21) or (abs_diff_1 > 21 and abs_diff_2 < 7):
+                margin_similarity *= 0.5
+            
+            similarity = margin_similarity + direction_bonus
+            return min(1.0, similarity)
         
-        # Group samples by game pattern
-        category_groups = {}
-        for i, y in enumerate(self.data_y):
-            cat = get_game_pattern(y.item())
-            if cat not in category_groups:
-                category_groups[cat] = []
-            category_groups[cat].append(i)
+        # Pre-compute similarities for efficient pair selection
+        print("Computing similarity matrix for improved Transformer pair construction...")
+        n_samples = len(self.data_x)
+        similarity_matrix = np.zeros((n_samples, n_samples))
+        for i in range(n_samples):
+            for j in range(i + 1, n_samples):
+                sim = calculate_similarity(self.data_y[i].item(), self.data_y[j].item())
+                similarity_matrix[i, j] = sim
+                similarity_matrix[j, i] = sim
         
-        # Create balanced pairs: both positive (similar) and negative (dissimilar) pairs
-        random.seed(42)  # For reproducibility
+        # Create pairs with improved strategy
+        random.seed(42)
+        similarity_threshold = 0.6
         
         for i in range(len(self.data_x)):
-            current_cat = get_game_pattern(self.data_y[i].item())
             pairs_created = 0
             
-            # Create positive pairs (same broad category only)
-            positive_candidates = []
-            if current_cat in category_groups:
-                positive_candidates = [j for j in category_groups[current_cat] if j != i]
+            # Get similarity scores
+            similarities = similarity_matrix[i, :]
             
-            # Sample positive pairs
-            num_positive = min(max_pairs_per_sample // 3, len(positive_candidates))
+            # Positive pairs: high similarity
+            positive_candidates = [j for j in range(n_samples) 
+                                 if j != i and similarities[j] >= similarity_threshold]
+            
             if positive_candidates:
-                positive_samples = random.sample(positive_candidates, num_positive)
-                for j in positive_samples:
+                positive_candidates.sort(key=lambda j: similarities[j], reverse=True)
+                num_positive = min(max_pairs_per_sample // 2, len(positive_candidates))
+                top_k = min(3, len(positive_candidates))
+                selected = positive_candidates[:top_k]
+                if len(positive_candidates) > top_k:
+                    remaining = positive_candidates[top_k:]
+                    selected.extend(random.sample(remaining, min(num_positive - top_k, len(remaining))))
+                for j in selected:
                     self.pairs.append((i, j))
                     pairs_created += 1
             
-            # Create negative pairs (different broad categories)
-            negative_candidates = []
-            for cat, indices in category_groups.items():
-                if cat != current_cat:
-                    negative_candidates.extend([j for j in indices if j != i])
+            # Negative pairs: hard negative mining
+            negative_candidates = [j for j in range(n_samples) 
+                                 if j != i and similarities[j] < similarity_threshold]
             
-            # Sample negative pairs
-            num_negative = min(max_pairs_per_sample - pairs_created, len(negative_candidates))
             if negative_candidates:
-                negative_samples = random.sample(negative_candidates, num_negative)
-                for j in negative_samples:
+                negative_similarities = [(j, similarities[j]) for j in negative_candidates]
+                negative_similarities.sort(key=lambda x: x[1])
+                
+                # Hard negatives: similarity 0.2 to 0.5
+                hard_negatives = [j for j, sim in negative_similarities if 0.2 <= sim < 0.5]
+                easy_negatives = [j for j, sim in negative_similarities if sim < 0.2]
+                
+                num_negative = min(max_pairs_per_sample - pairs_created, len(negative_candidates))
+                if hard_negatives:
+                    num_hard = min(num_negative * 2 // 3, len(hard_negatives))
+                    selected_neg = random.sample(hard_negatives, num_hard)
+                    if len(easy_negatives) > 0 and num_negative > num_hard:
+                        selected_neg.extend(random.sample(easy_negatives, 
+                                                          min(num_negative - num_hard, len(easy_negatives))))
+                else:
+                    selected_neg = random.sample(negative_candidates, 
+                                                 min(num_negative, len(negative_candidates)))
+                
+                for j in selected_neg:
                     self.pairs.append((i, j))
         
         # Shuffle pairs for better training
         random.shuffle(self.pairs)
-        print(f"Created {len(self.pairs)} balanced transformer pairs")
+        print(f"Created {len(self.pairs)} pairs based on improved continuous similarity")
         print(f"Sequence shape: {self.data_x.shape}")
 
     def __len__(self):
@@ -121,16 +158,20 @@ class NFLTransformerDataset(Dataset):
         score_diff_1 = y1.item()
         score_diff_2 = y2.item()
         
-        def get_game_pattern(final_score_diff):
-            if final_score_diff > 0:
-                return "win"
-            else:
-                return "loss"
+        # Calculate continuous similarity
+        def calculate_similarity(score_diff_1, score_diff_2):
+            abs_diff_1 = abs(score_diff_1)
+            abs_diff_2 = abs(score_diff_2)
+            margin_similarity = 1.0 / (1.0 + abs(abs_diff_1 - abs_diff_2) / 7.0)
+            same_direction = (score_diff_1 > 0) == (score_diff_2 > 0)
+            direction_bonus = 0.2 if same_direction else 0.0
+            if (abs_diff_1 < 7 and abs_diff_2 > 21) or (abs_diff_1 > 21 and abs_diff_2 < 7):
+                margin_similarity *= 0.5
+            similarity = margin_similarity + direction_bonus
+            return min(1.0, similarity)
         
-        cat1 = get_game_pattern(score_diff_1)
-        cat2 = get_game_pattern(score_diff_2)
-        
-        label = 1 if cat1 == cat2 else 0
+        similarity = calculate_similarity(score_diff_1, score_diff_2)
+        label = 1.0 if similarity >= 0.6 else 0.0
         return x1.to(self.device), x2.to(self.device), torch.FloatTensor([label]).to(self.device)
 
 
