@@ -31,12 +31,8 @@ class NFLSequenceDataset(Dataset):
         self.data_x = torch.FloatTensor(data_x)
         self.data_y = torch.LongTensor(data_y)
         self.pairs = []
-        
-        # Improved similarity calculation based on final score difference
-        
-        
-        # Pre-compute similarities for efficient pair selection
-        print("Computing similarity matrix for improved LSTM pair construction...")
+        # Pre-compute similarities
+        print("Computing similarity matrix LSTM pair construction...")
         n_samples = len(self.data_x)
         similarity_matrix = np.zeros((n_samples, n_samples))
         for i in range(n_samples):
@@ -62,7 +58,7 @@ class NFLSequenceDataset(Dataset):
             if positive_candidates:
                 positive_candidates.sort(key=lambda j: similarities[j], reverse=True)
                 num_positive = min(max_pairs_per_sample // 2, len(positive_candidates))
-                top_k = min(3, len(positive_candidates))
+                top_k = min(10, len(positive_candidates))
                 selected = positive_candidates[:top_k]
                 if len(positive_candidates) > top_k:
                     remaining = positive_candidates[top_k:]
@@ -99,29 +95,25 @@ class NFLSequenceDataset(Dataset):
         
         # Shuffle pairs for better training
         random.shuffle(self.pairs)
-        print(f"Created {len(self.pairs)} pairs based on improved continuous similarity")
+        print(f"Created {len(self.pairs)} pairs")
         print(f"Sequence shape: {self.data_x.shape}")
 
-    def calculate_similarity(score_diff_1, score_diff_2):
+    def calculate_similarity(self, score_diff_1, score_diff_2):
         """
-        Calculate continuous similarity between two game outcomes.
-        Returns value in [0, 1] where 1 = most similar, 0 = most dissimilar.
+        Prioritizes win/loss alignment; smooths by margin similarity.
         """
-        abs_diff_1 = abs(score_diff_1)
-        abs_diff_2 = abs(score_diff_2)
-        
-        # Similarity based on score difference magnitude
-        margin_similarity = 1.0 / (1.0 + abs(abs_diff_1 - abs_diff_2) / 7.0)
-        
-        # Bonus if both games have same outcome direction
-        same_direction = (score_diff_1 > 0) == (score_diff_2 > 0)
-        direction_bonus = 0.2 if same_direction else 0.0
-        
-        # Penalty for very different game types (close vs blowout)
-        if (abs_diff_1 < 7 and abs_diff_2 > 21) or (abs_diff_1 > 21 and abs_diff_2 < 7):
-            margin_similarity *= 0.5
-        
-        similarity = margin_similarity + direction_bonus
+        import math
+        same_outcome = (score_diff_1 >= 0) == (score_diff_2 >= 0)
+        abs_diff_1, abs_diff_2 = abs(score_diff_1), abs(score_diff_2)
+
+        # Strong base similarity if both wins or both losses
+        base = 0.8 if same_outcome else 0.0
+
+        # Margin similarity within same outcome
+        margin_similarity = math.exp(-abs(abs_diff_1 - abs_diff_2) / 7.0)
+
+        # Combine with weighting
+        similarity = base + 0.15 * margin_similarity
         return min(1.0, similarity)
     def __len__(self):
         return len(self.pairs)
@@ -155,8 +147,7 @@ class SiameseLSTM(nn.Module):
             dropout_rate: Dropout rate
             bidirectional: Whether to use bidirectional LSTM
         """
-        super(SiameseLSTM, self).__init__()
-        
+        super().__init__()
         # Store constructor parameters for saving/loading
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
@@ -171,7 +162,7 @@ class SiameseLSTM(nn.Module):
             hidden_size=hidden_dim,
             num_layers=lstm_layers,
             batch_first=True,
-            dropout=dropout_rate if lstm_layers > 1 else 0,
+            dropout=dropout_rate,
             bidirectional=bidirectional
         )
         
@@ -223,16 +214,16 @@ class SiameseLSTM(nn.Module):
         """
         # LSTM forward pass
         lstm_out, (h_n, c_n) = self.lstm(x)
-        
-        # Use the final hidden state from the last layer
-        # When bidirectional=True, PyTorch automatically concatenates forward and backward
-        # h_n shape: (num_layers * num_directions, batch_size, hidden_dim)
-        final_hidden = h_n[-1, :, :]  # (batch_size, hidden_dim * num_directions)
-        
-        # Alternative: Use mean pooling over sequence
-        # final_hidden = torch.mean(lstm_out, dim=1)  # (batch_size, lstm_output_dim)
-        
-        # Project to embedding space
+        # h_n.shape = (num_layers * D, batch, hidden_dim) where D is number of directions
+        if self.bidirectional:
+            h_fwd = h_n[-2, :, :]  # (batch, hidden_dim)
+            h_bwd = h_n[-1, :, :]  # (batch, hidden_dim)
+            final_hidden = torch.cat([h_fwd, h_bwd], dim=1)  # (batch, 2*hidden_dim)
+        else:
+            final_hidden = h_n[-1, :, :]  # (batch, hidden_dim)
+
+        # Alternative: pooling
+        # final_hidden = lstm_out.mean(dim=1)  # (batch, hidden_dim * num_directions)
         embedding = self.head(final_hidden)
         
         # L2 normalize the output for better similarity computation
@@ -303,7 +294,7 @@ class SiameseLSTMClassifier:
         train_dataset = NFLSequenceDataset(
             X, y, 
             sequence_length=self.sequence_length,
-            max_pairs_per_sample=30, 
+            max_pairs_per_sample=100, 
             device=self.device, 
         )
 
@@ -314,7 +305,7 @@ class SiameseLSTMClassifier:
             val_dataset = NFLSequenceDataset(
                 val_X, val_y, 
                 sequence_length=self.sequence_length,
-                max_pairs_per_sample=25, 
+                max_pairs_per_sample=100, 
                 device=self.device, 
             )
             val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
@@ -547,8 +538,7 @@ class SiameseLSTMClassifier:
         val_acc = self.final_val_accuracy
         val_loss = self.final_val_loss
         
-        filename = f"{filepath_prefix}_LSTM_{timesteps_range[0]}-{timesteps_range[1]}_ep{self.best_epoch}"
-        filename += f"_valAcc{val_acc:.3f}_valLoss{val_loss:.3f}.pth"
+        filename = f"{filepath_prefix}_LSTM_{timesteps_range[0]}-{timesteps_range[1]}"
         
         checkpoint = {
             'model_state_dict': self.model.state_dict(),

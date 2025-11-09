@@ -5,7 +5,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from metric_learning.siamese_network import SiameseClassifier, SiameseNetwork
 from metric_learning.siamese_transformer import SiameseTransformer, SiameseTransformerClassifier
 from metric_learning.siamese_lstm import SiameseLSTM, SiameseLSTMClassifier
-from notebooks import process_data
 import torch
 import torch.nn as nn
 from sklearn.model_selection import train_test_split
@@ -192,7 +191,7 @@ def setup_transformer_models(training_data, test_data, num_models = 20, epochs =
         
     return models
 
-def setup_lstm_models(training_data, test_data, num_models = 20, epochs = 100, lr = 0.001, batch_size = 128, hidden_dim = 32, head_output_dim = 16, lstm_layers = 2, sequence_length = 1):
+def setup_lstm_models(training_data, test_data, num_models = 20, epochs = 100, lr = 0.001, batch_size = 128, hidden_dim = 32, head_output_dim = 16, lstm_layers = 1, sequence_length = 1):
     """
     Setup LSTM models for each timestep range with normalization pipeline.
     
@@ -250,10 +249,7 @@ def setup_lstm_models(training_data, test_data, num_models = 20, epochs = 100, l
             # Reshape to (n_samples, 1, n_features)
             X_train = X_train.reshape(X_train.shape[0], 1, X_train.shape[1])
             X_test = X_test.reshape(X_test.shape[0], 1, X_test.shape[1])
-        
-        # Split data: 80% training, 20% validation
         print(f"Training set shape: {X_train.shape}, Validation set shape: {X_test.shape}")
-            
         # Concatenate all data points from different timesteps in this range
         print("Training for timestep", timesteps_range)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

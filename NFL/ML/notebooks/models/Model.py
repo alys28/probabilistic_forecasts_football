@@ -123,7 +123,6 @@ class Model(ABC):
             return X
         return self.preprocessor.transform(X)
 
-    # ---------- Generic Optuna optimization ----------
     def optimize_hyperparameters(
         self,
         X_train: np.ndarray,
