@@ -58,7 +58,7 @@ class NFLSequenceDataset(Dataset):
             if positive_candidates:
                 positive_candidates.sort(key=lambda j: similarities[j], reverse=True)
                 num_positive = min(max_pairs_per_sample // 2, len(positive_candidates))
-                top_k = min(10, len(positive_candidates))
+                top_k = min(3, len(positive_candidates))
                 selected = positive_candidates[:top_k]
                 if len(positive_candidates) > top_k:
                     remaining = positive_candidates[top_k:]
@@ -294,7 +294,7 @@ class SiameseLSTMClassifier:
         train_dataset = NFLSequenceDataset(
             X, y, 
             sequence_length=self.sequence_length,
-            max_pairs_per_sample=100, 
+            max_pairs_per_sample=25, 
             device=self.device, 
         )
 
@@ -305,7 +305,7 @@ class SiameseLSTMClassifier:
             val_dataset = NFLSequenceDataset(
                 val_X, val_y, 
                 sequence_length=self.sequence_length,
-                max_pairs_per_sample=100, 
+                max_pairs_per_sample=10, 
                 device=self.device, 
             )
             val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
