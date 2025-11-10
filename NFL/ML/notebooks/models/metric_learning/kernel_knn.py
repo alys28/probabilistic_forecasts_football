@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-
+from metric_learning.utils import ContrastiveLoss
 
 def setup_models(training_data, test_data, num_models = 20, epochs = 100, lr = 0.001, batch_size = 128, hidden_dim = 128, head_output_dim = 32):
     """
@@ -191,7 +191,7 @@ def setup_transformer_models(training_data, test_data, num_models = 20, epochs =
         
     return models
 
-def setup_lstm_models(training_data, test_data, num_models = 20, epochs = 100, lr = 0.001, batch_size = 128, hidden_dim = 32, head_output_dim = 16, lstm_layers = 1, sequence_length = 1):
+def setup_lstm_models(training_data, test_data, num_models = 20, epochs = 100, lr = 0.0001, batch_size = 128, hidden_dim = 32, head_output_dim = 16, lstm_layers = 1, sequence_length = 1):
     """
     Setup LSTM models for each timestep range with normalization pipeline.
     
@@ -202,7 +202,7 @@ def setup_lstm_models(training_data, test_data, num_models = 20, epochs = 100, l
     """
     # Setup models for each timestep range
     models = []
-    for i in range(num_models):
+    for i in range(67, num_models):
         # Divide [0, 1] into num_models equal ranges
         range_size = 1.0 / (num_models - 1)
         start_time = round(i * range_size, 3)
@@ -266,13 +266,13 @@ def setup_lstm_models(training_data, test_data, num_models = 20, epochs = 100, l
             lstm_layers=lstm_layers,
             head_output_dim=head_output_dim,
             dropout_rate=0.3,
-            bidirectional=True
+            bidirectional=False
         )
-        criterion = nn.BCELoss()
+        criterion = ContrastiveLoss(margin = 0.5)
         siamese_lstm = siamese_lstm.to(device)
         criterion = criterion.to(device)
         
-        optimizer = torch.optim.AdamW(siamese_lstm.parameters(), lr=lr, weight_decay=0.01)
+        optimizer = torch.optim.AdamW(siamese_lstm.parameters(), lr=lr, weight_decay=1e-4)
         
         # Add learning rate scheduler
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.7, patience=8)

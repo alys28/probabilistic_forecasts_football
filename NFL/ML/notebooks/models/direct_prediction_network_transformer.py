@@ -5,26 +5,7 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import os
 import math
-
-class NFLDirectDataset(Dataset):
-    def __init__(self, data_x, data_y, device='cpu'):
-        """
-        Direct prediction dataset - no pairs needed
-        Args:
-            data_x: Game features
-            data_y: Game outcomes (score differences)
-        """
-        self.device = device
-        self.data_x = torch.FloatTensor(data_x).to(device)
-        
-        # Convert score differences to win/loss labels (1 = win, 0 = loss)
-        self.data_y = torch.FloatTensor([(1.0 if y > 0 else 0.0) for y in data_y]).to(device)
-        
-    def __len__(self):
-        return len(self.data_x)
-
-    def __getitem__(self, idx):
-        return self.data_x[idx], self.data_y[idx]
+from .DL_Model import BaseDirectClassifier, NFLDirectDataset
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
@@ -119,186 +100,72 @@ class DirectPredictionTransformer(nn.Module):
         
         return output
 
-class DirectTransformerClassifier:
+class DirectTransformerClassifier(BaseDirectClassifier):
     def __init__(self, model, epochs, optimizer, criterion, device, scheduler=None, use_scaler=True):
         """
         Direct prediction transformer classifier
         """
-        self.model = model.to(device)
-        self.epochs = epochs
-        self.optimizer = optimizer
-        self.criterion = criterion.to(device)
-        self.device = device
-        self.scheduler = scheduler
-        self.use_scaler = use_scaler
-        
-        # Initialize scaler if needed
-        if self.use_scaler:
-            from sklearn.preprocessing import StandardScaler
-            self.scaler = StandardScaler()
-            self.scaler_fitted = False
-        else:
-            self.scaler = None
-            self.scaler_fitted = False
-        
-        # Track training metrics
-        self.final_train_loss = None
-        self.final_train_accuracy = None
-        self.final_val_loss = None
-        self.final_val_accuracy = None
-        self.best_epoch = None
-        self.epochs_trained = None
+        super().__init__(model, epochs, optimizer, criterion, device, scheduler, use_scaler)
     
-    def fit(self, X, y, val_X=None, val_y=None, batch_size=128):
-        """
-        Train the direct prediction transformer model
-        """
-        # Ensure X is 2D for scaler (flatten if needed)
+    def _prepare_data_for_scaling(self, X):
+        """Prepare data for scaling - keep original shape for transformer"""
+        return X
+    
+    def _apply_scaling(self, X, fit=False):
+        """Apply scaling to data"""
         if not isinstance(X, np.ndarray):
             X = np.array(X)
-      
-        # Apply scaling if enabled
-        if self.use_scaler and not self.scaler_fitted:
-            print("Fitting scaler on training data...")
+        
+        if self.use_scaler and not self.scaler_fitted and fit:
             X_scaled = self.scaler.fit_transform(X)
             self.scaler_fitted = True
         elif self.use_scaler and self.scaler_fitted:
             X_scaled = self.scaler.transform(X)
         else:
             X_scaled = X
-        train_dataset = NFLDirectDataset(X_scaled, y, device=self.device)
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-        
-        if val_X is not None and val_y is not None:
-            
-            # Apply scaling to validation data
-            if self.use_scaler:
-                val_X_scaled = self.scaler.transform(val_X)
-            else:
-                val_X_scaled = val_X
-            val_dataset = NFLDirectDataset(val_X_scaled, val_y, device=self.device)
-            val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-        else:
-            val_loader = None
-        
-        # Training with early stopping
-        best_val_loss = float('inf')
-        best_model_state = None
-        patience_counter = 0
-        patience = 10
-        best_epoch = 0
-        
-        print(f"Starting transformer training on device: {self.device}")
-        
-        for epoch in range(self.epochs):
-            # Training
-            self.model.train()
-            train_loss = 0
-            train_correct = 0
-            train_total = 0
-            
-            for batch_idx, (x, y) in enumerate(train_loader):
-                x, y = x.to(self.device), y.to(self.device)
-                output = self.model(x).squeeze(-1)  # Remove only the last dimension
-                    
-                self.optimizer.zero_grad()
-                loss = self.criterion(output, y)
-                
-                loss.backward()
-                
-                # Gradient clipping for transformer
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                
-                self.optimizer.step()
-                train_loss += loss.item()
-                
-                # Calculate accuracy
-                with torch.no_grad():
-                    predictions = (output > 0.5).float()
-                    train_correct += (predictions == y).float().sum().item()
-                    train_total += len(predictions)
-            
-            avg_train_loss = train_loss / len(train_loader)
-            train_accuracy = train_correct / train_total if train_total > 0 else 0
-            
-            # Validation
-            if val_loader is not None:
-                val_loss, val_accuracy = self._evaluate(val_loader)
-                
-                # Learning rate scheduling
-                if self.scheduler:
-                    self.scheduler.step(val_loss)
-                
-                # Early stopping
-                if val_loss < best_val_loss:
-                    best_val_loss = val_loss
-                    best_model_state = self.model.state_dict().copy()
-                    best_epoch = epoch + 1
-                    # Store best metrics
-                    self.final_val_loss = val_loss
-                    self.final_val_accuracy = val_accuracy
-                    self.final_train_loss = avg_train_loss
-                    self.final_train_accuracy = train_accuracy
-                    patience_counter = 0
-                else:
-                    patience_counter += 1
-                    if patience_counter >= patience:
-                        print(f"Early stopping at epoch {epoch+1}")
-                        print(f"Best epoch: {best_epoch}, Train Acc: {self.final_train_accuracy:.4f}, Train Loss: {self.final_train_loss:.4f}, Val Acc: {self.final_val_accuracy:.4f}, Val Loss: {self.final_val_loss:.4f}")
-                        if best_model_state is not None:
-                            self.model.load_state_dict(best_model_state)
-                            print(f"Restored transformer model from best epoch {best_epoch} with val_loss: {best_val_loss:.6f}")
-                        break
-            else:
-                # Store final metrics for no-validation case
-                self.final_train_loss = avg_train_loss
-                self.final_train_accuracy = train_accuracy
-                best_epoch = epoch + 1
-                if best_model_state is None:
-                    best_model_state = self.model.state_dict().copy()
-        
-        # Store final training info
-        self.best_epoch = best_epoch
-        self.epochs_trained = epoch + 1
+        return X_scaled
     
-    def _evaluate(self, data_loader):
-        """Helper method for evaluation"""
-        self.model.eval()
-        total_loss = 0
-        correct = 0
-        total_samples = 0
+    def _get_training_hooks(self):
+        """Get training-specific hooks"""
+        return {
+            'gradient_clip_norm': 1.0,  # Gradient clipping for transformer
+            'label_smoothing': 0.0,
+            'patience': 10
+        }
+    
+    def _get_model_config(self):
+        """Extract model configuration for saving"""
+        return {
+            'input_dim': self.model.input_dim,
+            'd_model': self.model.d_model,
+            'nhead': self.model.transformer_encoder.layers[0].self_attn.num_heads,
+            'num_layers': len(self.model.transformer_encoder.layers),
+        }
+    
+    def _recreate_model_from_config(self, model_config):
+        """Recreate model from saved configuration"""
+        return DirectPredictionTransformer(
+            input_dim=model_config['input_dim'],
+            d_model=model_config['d_model'],
+            nhead=model_config['nhead'],
+            num_layers=model_config['num_layers'],
+        )
+    
+    def _get_model_type_name(self):
+        """Get model type name"""
+        return 'transformer'
+    
+    def fit(self, X, y, val_X=None, val_y=None, batch_size=128, verbose=True):
+        """
+        Train the direct prediction transformer model
+        """
+        # Prepare and scale data
+        X_scaled = self._apply_scaling(X, fit=True)
+        val_X_scaled = self._apply_scaling(val_X, fit=False) if val_X is not None else None
         
-        with torch.no_grad():
-            for x, y in data_loader:
-                x, y = x.to(self.device), y.to(self.device)
-                
-                # Skip batch if inputs contain NaN
-                if torch.isnan(x).any() or torch.isnan(y).any():
-                    continue
-                    
-                output = self.model(x).squeeze(-1)
-                
-                # Skip batch if outputs contain NaN
-                if torch.isnan(output).any():
-                    continue
-                    
-                loss = self.criterion(output, y)
-                
-                # Skip batch if loss is NaN
-                if torch.isnan(loss):
-                    continue
-                    
-                total_loss += loss.item()
-                
-                # Calculate accuracy
-                predictions = (output > 0.5).float()
-                correct += (predictions == y).float().sum().item()
-                total_samples += len(predictions)
-        
-        avg_loss = total_loss / len(data_loader) if len(data_loader) > 0 else float('inf')
-        accuracy = correct / total_samples if total_samples > 0 else 0.0
-        return avg_loss, accuracy
-
+        # Use base class fit method
+        super().fit(X_scaled, y, val_X=val_X_scaled, val_y=val_y, batch_size=batch_size, verbose=verbose)
+    
     def predict(self, x):
         """
         Make predictions on new data
@@ -308,8 +175,9 @@ class DirectTransformerClassifier:
         else:
             x_scaled = x
         # Reshape to (samples, seq_len, input_dim)
-        print(x.shape)
-        x_scaled = x_scaled.reshape(x.shape[0], x.shape[1], x.shape[2])
+        if len(x_scaled.shape) == 2:
+            # If 2D, assume it needs to be reshaped
+            x_scaled = x_scaled.reshape(x.shape[0], x.shape[1], x.shape[2])
 
         self.model.eval()
         with torch.no_grad():
@@ -321,82 +189,16 @@ class DirectTransformerClassifier:
         """
         Return prediction probabilities (same as predict for this model)
         """
-        pred = self.predict(x).item()
-        return [[1 - pred, pred]]
+        preds = self.predict(x)
+        # Handle single prediction case
+        if preds.ndim == 0 or (preds.ndim == 1 and len(preds) == 1):
+            pred = preds.item() if preds.ndim > 0 else preds
+            return np.array([[1 - pred, pred]])
+        # Handle multiple predictions
+        preds = preds.flatten()
+        return np.column_stack([1 - preds, preds])
     
-    def score(self, X, y):
-        """
-        Return the mean accuracy on the given test data and labels.
-        
-        Args:
-            X: Test features
-            y: True labels
-            
-        Returns:
-            float: Mean accuracy score
-        """
-        # Ensure X is 2D (flattening is handled in predict method)
-        # Get predictions (scaling is handled internally in predict method)
-        y_pred_proba = self.predict(X)
-        y_pred = (y_pred_proba > 0.5).astype(float).flatten()
-        
-        # Convert y to binary if needed (in case it's score differences)
-        if isinstance(y, (list, tuple)):
-            y = np.array(y)
-        y_true = np.array([(1.0 if label > 0 else 0.0) for label in y]) if y.max() > 1 or y.min() < 0 else y
-        
-        # Calculate accuracy
-        accuracy = np.mean(y_pred == y_true)
-        return accuracy
-    
-    def get_scaler(self):
-        """
-        Return the fitted scaler if available
-        """
-        if self.use_scaler and self.scaler_fitted:
-            return self.scaler
-        else:
-            return None
-    
-    def save_model(self, filepath_prefix, timesteps_range):
-        """
-        Save the trained transformer model
-        """
-        val_acc = self.final_val_accuracy if self.final_val_accuracy else 0
-        val_loss = self.final_val_loss if self.final_val_loss else 0
-        
-        filename = f"{filepath_prefix}_transformer_{timesteps_range[0]}-{timesteps_range[1]}_ep{self.best_epoch}"
-        filename += f"_valAcc{val_acc:.4f}_valLoss{val_loss:.4f}.pth"
-        
-        checkpoint = {
-            'model_state_dict': self.model.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
-            'timesteps_range': timesteps_range,
-            'best_epoch': self.best_epoch,
-            'epochs_trained': self.epochs_trained,
-            'final_train_loss': self.final_train_loss,
-            'final_train_accuracy': self.final_train_accuracy,
-            'final_val_loss': self.final_val_loss,
-            'final_val_accuracy': self.final_val_accuracy,
-            'model_config': {
-                'input_dim': self.model.input_dim,
-                'd_model': self.model.d_model,
-                'nhead': self.model.transformer_encoder.layers[0].self_attn.num_heads,
-                'num_layers': len(self.model.transformer_encoder.layers),
-            },
-            'use_scaler': self.use_scaler,
-            'scaler_fitted': self.scaler_fitted
-        }
-        
-        # Save scaler if it exists and is fitted
-        if self.use_scaler and self.scaler_fitted:
-            import pickle
-            checkpoint['scaler'] = pickle.dumps(self.scaler)
-        
-        torch.save(checkpoint, filename)
-        print(f"Direct prediction transformer model saved: {filename}")
-        return filename
-    
+   
     @classmethod
     def load_model(cls, filepath, device=None):
         """

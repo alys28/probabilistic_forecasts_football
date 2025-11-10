@@ -6,6 +6,7 @@ from sklearn.isotonic import IsotonicRegression
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler
 import optuna
+import shap
 optuna.logging.set_verbosity(optuna.logging.CRITICAL)
 
 
@@ -182,3 +183,13 @@ class Model(ABC):
     def score(self, X: np.ndarray, y: np.ndarray) -> float:
         preds = self.predict(X)
         return float(np.mean(preds == y))
+    
+    def SHAP_analysis(self, X_test, plot = True):
+        """
+        Model interpretability with SHAP values
+        """
+        explainer = shap.Explainer(self.model)
+        shap_values =  explainer(X_test)
+        if plot:
+            shap.summary_plot(shap_values[:, :, 1], X_test, plot_type="bar")
+        return shap_values

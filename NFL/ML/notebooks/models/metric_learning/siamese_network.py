@@ -5,27 +5,6 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import random
 
-# class ContrastiveLoss(nn.Module):
-#     def __init__(self, margin=0.5):  # Smaller margin for cosine similarity
-#         super(ContrastiveLoss, self).__init__()
-#         self.margin = margin
-
-#     def forward(self, output1, output2, label):
-#         label = label.float()
-#         # label: 1 if similar, 0 if dissimilar
-        
-#         # Cosine similarity (ranges from -1 to 1, where 1 = identical)
-#         cosine_sim = F.cosine_similarity(output1, output2, dim=1)
-        
-#         # Convert to distance (0 = identical, 2 = opposite)
-#         cosine_distance = 1 - cosine_sim
-        
-#         # Contrastive loss with cosine distance
-#         loss = (label) * torch.pow(cosine_distance, 2) + \
-#                (1 - label) * torch.pow(torch.clamp(self.margin - cosine_distance, min=0.0), 2)
-#         return loss.mean()
-
-
 class NFLDataset(Dataset):
     def __init__(self, data_x, data_y, max_pairs_per_sample=25, device='cpu', add_noise=False, noise_std=0.01):
         # Store device for tensor creation

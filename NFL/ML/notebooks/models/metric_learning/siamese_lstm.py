@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import random
+from metric_learning.utils import ContrastiveLoss
 
 class NFLSequenceDataset(Dataset):
     def __init__(self, data_x, data_y, sequence_length=None, max_pairs_per_sample=25, device='cpu'):
@@ -135,7 +136,7 @@ class NFLSequenceDataset(Dataset):
 
 
 class SiameseLSTM(nn.Module):
-    def __init__(self, input_dim, hidden_dim, lstm_layers=2, head_output_dim=8, dropout_rate=0.3, bidirectional=True):
+    def __init__(self, input_dim, hidden_dim, lstm_layers=2, head_output_dim=8, dropout_rate=0.5, bidirectional=True):
         """
         LSTM-based Siamese Network
         
@@ -162,20 +163,22 @@ class SiameseLSTM(nn.Module):
             hidden_size=hidden_dim,
             num_layers=lstm_layers,
             batch_first=True,
-            dropout=dropout_rate,
+            dropout=dropout_rate,  # Dropout between LSTM layers
             bidirectional=bidirectional
         )
         
         # Calculate LSTM output dimension
         lstm_output_dim = hidden_dim * 2 if bidirectional else hidden_dim
         
-        # Projection head after LSTM
+        # Projection head after LSTM with additional regularization
         self.head = nn.Sequential(
             nn.Linear(lstm_output_dim, lstm_output_dim // 2),
-            nn.BatchNorm1d(lstm_output_dim // 2),
+            nn.LayerNorm(lstm_output_dim // 2),
             nn.ReLU(),
-            nn.Dropout(dropout_rate),
-            nn.Linear(lstm_output_dim // 2, head_output_dim)
+            nn.Dropout(p=dropout_rate),  # Dropout regularization
+            nn.Linear(lstm_output_dim // 2, head_output_dim),
+            nn.LayerNorm(head_output_dim),  # Add layer normalization for robustness
+            nn.Dropout(p=dropout_rate)     # Second dropout after last linear
         )
         
         # Initialize weights
@@ -202,7 +205,7 @@ class SiameseLSTM(nn.Module):
                 nn.init.ones_(m.weight)
                 nn.init.zeros_(m.bias)
 
-    def forward_one(self, x):
+    def forward(self, x):
         """
         Forward pass for one input sequence
         
@@ -231,7 +234,7 @@ class SiameseLSTM(nn.Module):
         
         return embedding
         
-    def forward(self, x1, x2):
+    def forward_two(self, x1, x2):
         """
         Forward pass for Siamese network
         
@@ -242,19 +245,14 @@ class SiameseLSTM(nn.Module):
             Similarity scores of shape (batch_size, 1)
         """
         # Get normalized feature representations
-        emb1 = self.forward_one(x1)
-        emb2 = self.forward_one(x2)
+        emb1 = self.forward(x1)
+        emb2 = self.forward(x2)
         
         # Calculate cosine similarity
         cosine_sim = F.cosine_similarity(emb1, emb2)
         
         # Convert cosine similarity from [-1, 1] to [0, 1] range
         similarity = (cosine_sim + 1) / 2
-        
-        # Clamp with small epsilon to preserve gradients
-        eps = 1e-7
-        similarity = torch.clamp(similarity, eps, 1.0 - eps)
-        
         # Reshape to match expected output format [batch_size, 1]
         similarity = similarity.unsqueeze(1)
         
@@ -273,9 +271,9 @@ class SiameseLSTMClassifier:
         
         # Track training metrics
         self.final_train_loss = None
-        self.final_train_accuracy = None
+        self.final_train_brier = None
         self.final_val_loss = None
-        self.final_val_accuracy = None
+        self.final_val_brier = None
         self.best_epoch = None
         self.epochs_trained = None
     
@@ -327,59 +325,54 @@ class SiameseLSTMClassifier:
             # Training
             self.model.train()
             train_loss = 0
-            train_correct = 0
+            train_brier_score = 0.0
             train_total = 0
-            
+
             for batch_idx, batch in enumerate(train_loader):
                 x1, x2, y = batch
                 x1, x2, y = x1.to(self.device), x2.to(self.device), y.to(self.device)
-                
                 # Debug device info for first batch
                 if epoch == 0 and batch_idx == 0:
                     print(f"LSTM Input tensors device: x1={x1.device}, x2={x2.device}, y={y.device}")
                     print(f"LSTM Input shapes: x1={x1.shape}, x2={x2.shape}")
-                
+
                 # Check for NaN in inputs
                 if torch.isnan(x1).any() or torch.isnan(x2).any():
                     print("NaN in LSTM inputs")
                     continue
-                    
-                output = self.model(x1, x2)
-                
-                # Check for NaN in outputs
-                if torch.isnan(output).any():
-                    print("NaN in LSTM outputs")
-                    continue
-                    
+
+                x1 = self.model(x1)
+                x2 = self.model(x2)
                 self.optimizer.zero_grad()
-                loss = self.criterion(output, y)
-                
+                loss = self.criterion(x1, x2, y)
+
                 # Check for NaN in loss
                 if torch.isnan(loss):
                     print("NaN in LSTM loss")
                     continue
-                    
+
                 loss.backward()
-                
+
                 # Gradient clipping for LSTM stability
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                
+
                 self.optimizer.step()
                 train_loss += loss.item()
-                
+
                 with torch.no_grad():
-                   predictions = (output > 0.5).float()
-                   train_correct += (predictions == y).float().sum().item()
-                   train_total += len(predictions)
-            
+                    output = (F.cosine_similarity(x1, x2) + 1) / 2
+                    brier = torch.mean((output - y.float()) ** 2).item()
+                    train_brier_score += brier * len(output)
+                    train_total += len(output)
+
             avg_train_loss = train_loss / len(train_loader)
-            train_accuracy = train_correct / train_total if train_total > 0 else 0
-            
+            avg_train_brier = train_brier_score / train_total if train_total > 0 else 0.0
+
             # Validation
             if val_loader is not None:
-                val_loss, val_accuracy = self._evaluate(val_loader)
-                print(f"Epoch {epoch+1}/{self.epochs}, Train Loss: {avg_train_loss:.6f}, Train Acc: {train_accuracy:.4f}, Val Loss: {val_loss:.6f}, Val Acc: {val_accuracy:.4f}")
-                
+                val_loss, val_brier = self._evaluate(val_loader)
+                print(f"Epoch {epoch+1}/{self.epochs}, Train Loss: {avg_train_loss:.6f}, Train Brier: {avg_train_brier:.4f}, Val Loss: {val_loss:.6f}, Val Brier: {val_brier:.4f}")
+
                 # Learning rate scheduling
                 if self.scheduler:
                     if hasattr(self.scheduler, 'step'):
@@ -395,9 +388,9 @@ class SiameseLSTMClassifier:
                     best_epoch = epoch + 1
                     # Store best metrics
                     self.final_val_loss = val_loss
-                    self.final_val_accuracy = val_accuracy
+                    self.final_val_brier = val_brier
                     self.final_train_loss = avg_train_loss
-                    self.final_train_accuracy = train_accuracy
+                    self.final_train_brier = train_brier_score
                     patience_counter = 0
                 else:
                     patience_counter += 1
@@ -408,11 +401,11 @@ class SiameseLSTMClassifier:
                             print(f"Restored LSTM model from best epoch {best_epoch} with val_loss: {best_val_loss:.6f}")
                         break
             else:
-                print(f"Epoch {epoch+1}/{self.epochs}, Train Loss: {avg_train_loss:.6f}, Train Acc: {train_accuracy:.4f}")
+                print(f"Epoch {epoch+1}/{self.epochs}, Train Loss: {avg_train_loss:.6f}, Train Brier: {train_brier_score:.4f}")
                 if best_model_state is None:
                     best_model_state = self.model.state_dict().copy()
                 self.final_train_loss = avg_train_loss
-                self.final_train_accuracy = train_accuracy
+                self.final_train_brier = train_brier_score
                 best_epoch = epoch + 1
         
         # Store final training info
@@ -490,7 +483,7 @@ class SiameseLSTMClassifier:
         """Helper method for evaluation"""
         self.model.eval()
         total_loss = 0
-        correct = 0
+        total_brier = 0.0
         total_samples = 0
         
         with torch.no_grad():
@@ -502,14 +495,10 @@ class SiameseLSTMClassifier:
                 if torch.isnan(x1).any() or torch.isnan(x2).any():
                     continue
                     
-                output = self.model(x1, x2)
-                
-                # Skip batch if outputs contain NaN
-                if torch.isnan(output).any():
-                    print("NaN in LSTM Evaluation")
-                    continue
+                output1 = self.model(x1)
+                output2 = self.model(x2)
                     
-                loss = self.criterion(output, y)
+                loss = self.criterion(output1, output2, y)
                 
                 # Skip batch if loss is NaN
                 if torch.isnan(loss):
@@ -517,35 +506,37 @@ class SiameseLSTMClassifier:
                     continue
                     
                 total_loss += loss.item()
-                
-                predictions = (output > 0.5).float()
-                correct += (predictions == y).float().sum().item()
-                total_samples += len(predictions)
+                probs = (F.cosine_similarity(output1, output2) + 1) / 2
+                # Calculate Brier score for the batch: mean((probs - ys)**2)
+                brier_score = ((probs - y) ** 2).mean().item()
+                batch_size = probs.numel()
+                total_brier += brier_score * batch_size
+                total_samples += batch_size
         
         avg_loss = total_loss / len(data_loader) if len(data_loader) > 0 else float('inf')
-        accuracy = correct / total_samples if total_samples > 0 else 0.0
-        return avg_loss, accuracy
+        brier = total_brier / total_samples if total_samples > 0 else float('inf')
+        return avg_loss, brier
 
     def predict(self, x1, x2):
         self.model.eval()
         with torch.no_grad():
             x1 = x1.to(self.device)
             x2 = x2.to(self.device)
-            output = self.model(x1, x2)
+            output = self.model.forward_two(x1, x2)
             return output
     
     def save_model(self, filepath_prefix, timesteps_range):
-        val_acc = self.final_val_accuracy
+        val_acc = self.final_val_brier
         val_loss = self.final_val_loss
         
-        filename = f"{filepath_prefix}_LSTM_{timesteps_range[0]}-{timesteps_range[1]}"
+        filename = f"{filepath_prefix}_LSTM_{timesteps_range[0]}-{timesteps_range[1]}.pth"
         
         checkpoint = {
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'timestep': timesteps_range[0],
             'val_loss': self.final_val_loss,
-            'val_accuracy': self.final_val_accuracy,
+            'val_brier': self.final_val_brier,
             'sequence_length': self.sequence_length,
             'model_config': {
                 'input_dim': self.model.input_dim,
@@ -584,7 +575,7 @@ class SiameseLSTMClassifier:
         siamese_lstm.to(device)
         
         # Create classifier instance
-        criterion = nn.BCELoss() 
+        criterion = ContrastiveLoss(margin = 0.5) 
         optimizer = torch.optim.AdamW(siamese_lstm.parameters(), lr=0.001)
         
         classifier = cls(
@@ -594,10 +585,10 @@ class SiameseLSTMClassifier:
         
         # Restore training metrics
         classifier.final_val_loss = checkpoint.get('val_loss')
-        classifier.final_val_accuracy = checkpoint.get('val_accuracy')
+        classifier.final_val_brier = checkpoint.get('val_brier')
         classifier.best_epoch = checkpoint.get('timestep')
         
         print(f"LSTM Model loaded from: {filepath}")
-        print(f"Best epoch: {classifier.best_epoch}, Val Acc: {classifier.final_val_accuracy:.4f}")
+        print(f"Best epoch: {classifier.best_epoch}, Val Acc: {classifier.final_val_brier:.4f}")
         
         return classifier 
