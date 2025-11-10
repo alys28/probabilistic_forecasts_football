@@ -7,6 +7,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler
 import optuna
 import shap
+import pandas as pd
 optuna.logging.set_verbosity(optuna.logging.CRITICAL)
 
 
@@ -180,16 +181,22 @@ class Model(ABC):
         calibrated = self.apply_calibration(uncalibrated_probs)
         return np.column_stack([1 - calibrated, calibrated])
 
+    def predict_proba_single(self, X):
+        preds = self.predict_proba(X)
+        return preds[:, 1]
     def score(self, X: np.ndarray, y: np.ndarray) -> float:
         preds = self.predict(X)
         return float(np.mean(preds == y))
     
-    def SHAP_analysis(self, X_test, plot = True):
+    def SHAP_analysis(self, X_test, X_train, plot = True):
         """
         Model interpretability with SHAP values
         """
-        explainer = shap.Explainer(self.model)
-        shap_values =  explainer(X_test)
+        feature_names = self.all_features  # or any custom list of names
+        # X_train_df = pd.DataFrame(X_train, columns=feature_names)
+        # X_test_df = pd.DataFrame(X_test, columns=feature_names)
+        explainer = shap.Explainer(self.predict_proba_single, X_train, feature_names=self.all_features)
+        shap_values = explainer(X_test)
         if plot:
-            shap.summary_plot(shap_values[:, :, 1], X_test, plot_type="bar")
+            shap.plots.bar(shap_values)
         return shap_values

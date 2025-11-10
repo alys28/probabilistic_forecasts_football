@@ -202,7 +202,7 @@ def setup_lstm_models(training_data, test_data, num_models = 20, epochs = 100, l
     """
     # Setup models for each timestep range
     models = []
-    for i in range(67, num_models):
+    for i in range(num_models):
         # Divide [0, 1] into num_models equal ranges
         range_size = 1.0 / (num_models - 1)
         start_time = round(i * range_size, 3)

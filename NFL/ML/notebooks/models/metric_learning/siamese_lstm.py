@@ -361,7 +361,7 @@ class SiameseLSTMClassifier:
 
                 with torch.no_grad():
                     output = (F.cosine_similarity(x1, x2) + 1) / 2
-                    brier = torch.mean((output - y.float()) ** 2).item()
+                    brier = F.mse_loss(output.unsqueeze(1), y).item()
                     train_brier_score += brier * len(output)
                     train_total += len(output)
 
@@ -428,7 +428,7 @@ class SiameseLSTMClassifier:
         data = data.to(self.device)
         self.model.eval()
         with torch.no_grad():
-            embedding = self.model.forward_one(data)
+            embedding = self.model(data)
             if embedding.shape[0] == 1:
                 embedding = embedding.squeeze(0)  # Remove batch dimension if single sample
             return embedding
@@ -471,7 +471,7 @@ class SiameseLSTMClassifier:
                 x = x.to(self.device)
                 
                 # Get embedding
-                embedding = self.model.forward_one(x)
+                embedding = self.model(x)
                 embedding = embedding.squeeze(0)
                 embeddings.append(embedding.cpu())
                 labels.append(label)
@@ -508,7 +508,7 @@ class SiameseLSTMClassifier:
                 total_loss += loss.item()
                 probs = (F.cosine_similarity(output1, output2) + 1) / 2
                 # Calculate Brier score for the batch: mean((probs - ys)**2)
-                brier_score = ((probs - y) ** 2).mean().item()
+                brier_score = F.mse_loss(probs.unsqueeze(1), y).item()
                 batch_size = probs.numel()
                 total_brier += brier_score * batch_size
                 total_samples += batch_size
