@@ -102,11 +102,11 @@ class DirectPredictionLSTM(nn.Module):
         return output
 
 class DirectLSTMClassifier(BaseDirectClassifier):
-    def __init__(self, model, epochs, optimizer, criterion, device, scheduler=None, use_scaler=True):
+    def __init__(self, model, epochs, optimizer, criterion, device, features, scheduler=None, use_scaler=True):
         """
         Direct prediction LSTM classifier
         """
-        super().__init__(model, epochs, optimizer, criterion, device, scheduler, use_scaler)
+        super().__init__(model, epochs, optimizer, criterion, device, features, scheduler, use_scaler)
     
     def _prepare_data_for_scaling(self, X):
         """Prepare data for scaling - flatten for LSTM"""
@@ -165,17 +165,6 @@ class DirectLSTMClassifier(BaseDirectClassifier):
     def _get_model_type_name(self):
         """Get model type name"""
         return 'lstm'
-    
-    def fit(self, X, y, val_X=None, val_y=None, batch_size=128, verbose=True):
-        """
-        Train the direct prediction LSTM model
-        """
-        # Prepare and scale data
-        X_scaled = self._apply_scaling(X, fit=True)
-        val_X_scaled = self._apply_scaling(val_X, fit=False) if val_X is not None else None
-        
-        # Use base class fit method
-        super().fit(X_scaled, y, val_X=val_X_scaled, val_y=val_y, batch_size=batch_size, verbose=verbose)
     
     def predict(self, x):
         """

@@ -192,9 +192,6 @@ class Model(ABC):
         """
         Model interpretability with SHAP values
         """
-        feature_names = self.all_features  # or any custom list of names
-        # X_train_df = pd.DataFrame(X_train, columns=feature_names)
-        # X_test_df = pd.DataFrame(X_test, columns=feature_names)
         explainer = shap.Explainer(self.predict_proba_single, X_train, feature_names=self.all_features)
         shap_values = explainer(X_test)
         if plot:

@@ -101,11 +101,11 @@ class DirectPredictionTransformer(nn.Module):
         return output
 
 class DirectTransformerClassifier(BaseDirectClassifier):
-    def __init__(self, model, epochs, optimizer, criterion, device, scheduler=None, use_scaler=True):
+    def __init__(self, model, epochs, optimizer, criterion, device, features, scheduler=None, use_scaler=True):
         """
         Direct prediction transformer classifier
         """
-        super().__init__(model, epochs, optimizer, criterion, device, scheduler, use_scaler)
+        super().__init__(model, epochs, optimizer, criterion, device, features, scheduler, use_scaler)
     
     def _prepare_data_for_scaling(self, X):
         """Prepare data for scaling - keep original shape for transformer"""

@@ -66,7 +66,7 @@ class DirectPredictionNetwork(nn.Module):
         return self.network(x)
 
 class DirectClassifier(BaseDirectClassifier):
-    def __init__(self, model, epochs, optimizer, criterion, device, scheduler=None, use_scaler=True,
+    def __init__(self, model, epochs, optimizer, criterion, device, features, scheduler=None, use_scaler=True,
                  optimize_hyperparams=False, n_trials=30, optimization_epochs=None):
         """
         Direct prediction classifier with optional hyperparameter optimization
@@ -77,13 +77,14 @@ class DirectClassifier(BaseDirectClassifier):
             optimizer: PyTorch optimizer
             criterion: Loss function
             device: PyTorch device
+            features: list of features (string), ordered with the data
             scheduler: Learning rate scheduler (optional)
             use_scaler: Whether to use feature scaling
             optimize_hyperparams: Whether to run Optuna optimization
             n_trials: Number of Optuna trials (if optimization enabled)
             optimization_epochs: Epochs per trial (if None, uses epochs//2)
         """
-        super().__init__(model, epochs, optimizer, criterion, device, scheduler, use_scaler)
+        super().__init__(model, epochs, optimizer, criterion, device, features, scheduler, use_scaler)
         
         # Optimization parameters
         self.optimize_hyperparams = optimize_hyperparams
@@ -192,7 +193,7 @@ class DirectClassifier(BaseDirectClassifier):
         val_X_scaled = self._apply_scaling(val_X_prepared, fit=False) if val_X_prepared is not None else None
         
         # Continue with normal training using base class fit method
-        super().fit(X_scaled, y, val_X=val_X_scaled, val_y=val_y, batch_size=batch_size, verbose=verbose)
+        super().fit(X, y, val_X=val_X, val_y=val_y, batch_size=batch_size, verbose=verbose)
     
     def _optuna_objective(self, trial, X_train, y_train, X_val, y_val, input_dim):
         """
@@ -446,7 +447,7 @@ class DirectClassifier(BaseDirectClassifier):
 
 # Example usage and training script
 def setup_direct_models(training_data, test_data=None, num_models=20, epochs=100, lr=0.001, 
-                       batch_size=64, hidden_dim=128, use_scaler=True, save_model=False,
+                       batch_size=64, hidden_dim=128, features = [], use_scaler=True, save_model=False,
                        optimize_hyperparams=False, n_trials=30):
     """
     Setup direct prediction models for each timestep range
@@ -545,7 +546,7 @@ def setup_direct_models(training_data, test_data=None, num_models=20, epochs=100
         )
         
         # Classifier now handles scaling and optimization internally
-        classifier = DirectClassifier(direct_network, epochs, optimizer, criterion, device, scheduler, 
+        classifier = DirectClassifier(direct_network, epochs, optimizer, criterion, device, features=features, scheduler=scheduler, 
                                     use_scaler=use_scaler, optimize_hyperparams=optimize_hyperparams, 
                                     n_trials=n_trials)
         

@@ -12,3 +12,16 @@ def SHAP_analysis(models, timestep, training_data, test_data):
     # y_test = np.array(y_test)
     vals = model.SHAP_analysis(X_test, X_train, True)
     return vals
+
+
+def save_SHAP_output(shap_output, name):
+    """
+    Save the output in a file
+    """
+    np.savez_compressed(
+        (name + ".npz") if name.endswith(".npz") else name,
+        values = shap_output.values,
+        base_values=shap_output.base_values,
+        data=shap_output.data,
+        feature_names=np.array(shap_output.feature_names),
+    )

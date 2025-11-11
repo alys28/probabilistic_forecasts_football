@@ -3,6 +3,7 @@ from torch import nn
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 from abc import ABC, abstractmethod
+import shap
 import pickle
 
 
@@ -37,7 +38,7 @@ class BaseDirectClassifier(ABC):
     Contains common functionality shared across all model types.
     """
     
-    def __init__(self, model, epochs, optimizer, criterion, device, scheduler=None, use_scaler=True):
+    def __init__(self, model, epochs, optimizer, criterion, device, features, scheduler=None, use_scaler=True):
         """
         Initialize the base classifier
         
@@ -47,6 +48,7 @@ class BaseDirectClassifier(ABC):
             optimizer: PyTorch optimizer
             criterion: Loss function
             device: PyTorch device
+            features: list of features (string), ordered with the data
             scheduler: Learning rate scheduler (optional)
             use_scaler: Whether to use feature scaling
         """
@@ -57,7 +59,7 @@ class BaseDirectClassifier(ABC):
         self.device = device
         self.scheduler = scheduler
         self.use_scaler = use_scaler
-        
+        self.features = features 
         # Initialize scaler if needed
         if self.use_scaler:
             from sklearn.preprocessing import StandardScaler
@@ -374,17 +376,24 @@ class BaseDirectClassifier(ABC):
         torch.save(checkpoint, filename)
         print(f"Direct prediction {model_type} model saved: {filename}")
         return filename
-    
+    def predict_proba_single(self, X):
+        preds = self.predict_proba(X)
+        return preds[:, 1]
     @classmethod
     @abstractmethod
-    def load_model(cls, filepath, device=None):
+    def load_model(self, cls, filepath, device=None):
         """
         Load a saved model. Must be implemented by subclasses.
         """
         pass
 
-    def SHAP_analysis(X_test, plot = True):
+    def SHAP_analysis(self, X_test, X_train, plot = True):
         """
-        Model interpretability using Integrated Gradients method
+        Model interpretability using SHAP DeepExplainer method
         """
-        
+        explainer = shap.Explainer(self.predict_proba_single, X_train[:min(len(X_train), 200)], feature_names=self.features)
+        shap_values = explainer(X_test)
+        if plot:
+            shap.plots.bar(shap_values)
+        return shap_values
+            
