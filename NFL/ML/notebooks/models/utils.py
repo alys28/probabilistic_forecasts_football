@@ -1,5 +1,6 @@
 import numpy as np
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 
 def SHAP_analysis_timestep(models, timestep, training_data, test_data, plot = True):
@@ -16,7 +17,7 @@ def SHAP_analysis_timestep(models, timestep, training_data, test_data, plot = Tr
     vals = model.SHAP_analysis(X_test, X_train, plot)
     return vals
 
-def SHAP_analysis(models, training_data, test_data, save_name, save_dir=None):
+def SHAP_analysis(models, training_data, test_data, save_name, save_dir=None, num_threads = 5):
     """
     Compute SHAP for each timestep and save outputs.
     
@@ -29,11 +30,17 @@ def SHAP_analysis(models, training_data, test_data, save_name, save_dir=None):
     """
     if save_dir is not None:
         os.makedirs(save_dir, exist_ok=True)
-    for timestep in models.keys():
+    import concurrent.futures
+
+    def process_timestep(timestep):
         shap_output = SHAP_analysis_timestep(models, timestep, training_data, test_data, plot = False)
         filename = save_name + "_" + f"{timestep}"
         save_SHAP_output(shap_output, os.path.join(save_dir, filename))
         print(f"Saved {filename}.npz")
+
+    timesteps = list(models.keys())
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        executor.map(process_timestep, timesteps)
 
 
 def save_SHAP_output(shap_output, path):
@@ -48,6 +55,6 @@ def save_SHAP_output(shap_output, path):
     arrays_to_save["feature_names"] = np.array(shap_output.feature_names)
     # Save
     np.savez_compressed(
-        (path + ".npz") if not path.endswith(".npz") else name,
+        (path + ".npz") if not path.endswith(".npz") else path,
         **arrays_to_save
     )
