@@ -173,30 +173,25 @@ class DirectLSTMClassifier(BaseDirectClassifier):
         # Ensure x is numpy array
         if not isinstance(x, np.ndarray):
             x = np.array(x)
-        
+        if len(x.shape) < 2:
+            raise Exception("Shape must be >= 2") 
+        elif len(x.shape) == 2:
+            x = np.expand_dims(x, axis=0)
         # Apply scaling if enabled
         if self.use_scaler and self.scaler_fitted:
             # Debug information
             original_shape = x.shape
-            
             # Check if shapes are compatible
             expected_features = self.scaler.n_features_in_
-            flattened_features = x.shape[0] * np.prod(x.shape[1:]) // x.shape[0] if len(x.shape) > 1 else x.shape[0]
+            # For LSTM: (batch_size, sequence_length, features) -> (batch_size, sequence_length * features)
+            x_flattened = x.reshape(x.shape[0], -1)
+            actual_features = x_flattened.shape[1]
             
-            if len(original_shape) >= 2:
-                # For LSTM: (batch_size, sequence_length, features) -> (batch_size, sequence_length * features)
-                x_flattened = x.reshape(x.shape[0], -1)
-                actual_features = x_flattened.shape[1]
-                
-                if actual_features == expected_features:
-                    x_scaled_flat = self.scaler.transform(x_flattened)
-                    x_scaled = x_scaled_flat.reshape(original_shape)
-                else:
-                    print(f"Warning: Scaler feature mismatch. Expected {expected_features}, got {actual_features}")
-                    print("Skipping scaling to avoid error. This may affect model performance.")
-                    x_scaled = x
+            if actual_features == expected_features:
+                x_scaled_flat = self.scaler.transform(x_flattened)
+                x_scaled = x_scaled_flat.reshape(original_shape)
             else:
-                print("Warning: Unexpected input dimensions. Skipping scaling.")
+                print(f"Warning: Scaler feature mismatch. Expected {expected_features}, got {actual_features}")
                 x_scaled = x
         else:
             x_scaled = x
@@ -306,7 +301,7 @@ class DirectLSTMClassifier(BaseDirectClassifier):
         return classifier
 
 # Example usage and training script
-def setup_direct_lstm_models(training_data, test_data=None, num_models=20, epochs=30, lr=0.001, 
+def setup_direct_lstm_models(training_data, test_data=None, features=[], num_models=20, epochs=30, lr=0.001, 
                              batch_size=32, hidden_size=16, num_layers=1, bidirectional=False, use_scaler=True, 
                              save_models=False):
     """
@@ -405,7 +400,7 @@ def setup_direct_lstm_models(training_data, test_data=None, num_models=20, epoch
         )
         
         # Classifier handles scaling internally
-        classifier = DirectLSTMClassifier(lstm_network, epochs, optimizer, criterion, device, scheduler, use_scaler=use_scaler)
+        classifier = DirectLSTMClassifier(lstm_network, epochs, optimizer, criterion, device, features, scheduler, use_scaler=use_scaler)
         
         # Train the model (scaler is handled internally)
         classifier.fit(X_train, y_train, val_X=X_val, val_y=y_val, batch_size=batch_size)

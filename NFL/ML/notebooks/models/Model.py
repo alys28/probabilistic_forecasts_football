@@ -47,7 +47,7 @@ class Model(ABC):
         y: np.ndarray,
         test_size: float = 0.25,
         random_state: int = 42,
-        stratify: bool = True,
+        stratify: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         return train_test_split(
             X,
@@ -197,3 +197,4 @@ class Model(ABC):
         if plot:
             shap.plots.bar(shap_values)
         return shap_values
+
