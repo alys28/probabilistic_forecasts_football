@@ -9,4 +9,5 @@ evalRTPF/R/NFL/ML/dataset
 *.faiss
 *.pkl
 *.pyc
+*.npz
 *.tsv

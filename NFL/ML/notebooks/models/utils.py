@@ -32,7 +32,7 @@ def SHAP_analysis(models, training_data, test_data, save_name, save_dir=None):
     for timestep in models.keys():
         shap_output = SHAP_analysis_timestep(models, timestep, training_data, test_data, plot = False)
         filename = save_name + "_" + f"{timestep}"
-        save_SHAP_output(shap_output, filename)
+        save_SHAP_output(shap_output, os.path.join(save_dir, filename))
         print(f"Saved {filename}.npz")
 
 
