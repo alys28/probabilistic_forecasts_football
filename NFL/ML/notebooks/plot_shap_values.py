@@ -55,7 +55,7 @@ class SHAP_over_time:
                 idx += 1        
         return lines
 
-    def plot(self, plot_title="SHAP over time", save_path="SHAP_plot.png", show=True):
+    def plot(self, plot_title="Feature importance over time", save_path="SHAP_plot.png", show=True):
         """
         Plot all lines with x-axis from 0 to 1. If series have different lengths,
         they are interpolated onto a common grid for visual comparison.
@@ -78,7 +78,7 @@ class SHAP_over_time:
 
         plt.title(plot_title)
         plt.xlabel("Time")
-        plt.ylabel("SHAP value")
+        plt.ylabel("Feature importance value")
         plt.grid(True, alpha=0.3)
         plt.legend(title="Feature", loc="best")
         plt.tight_layout()
