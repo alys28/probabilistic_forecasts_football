@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List
+from typing import List, Any, Union
 import pandas as pd
 import numpy as np
 
@@ -9,7 +9,7 @@ class Entries:
     """
     def __init__(self, timestep_size = 0.005):
         self.timesteps = list(range(0, 1, timestep_size))
-        self.timestep_size = timestep_size¸
+        self.timestep_size = timestep_size
         self.p_B = None
         self.p_A = None
     
@@ -39,5 +39,20 @@ class Entries:
             self.p_A[i, :] = p_A_col
             self.p_B[i, :] = p_B_col
     
-    
-    
+    def __getitem__(self, key: Union[tuple[int, int], int]) -> Union[tuple[np.ndarray, np.ndarray], tuple[float, float]]:
+        """
+        Single number as key[i]: get the forecasts of game with idx i
+        Tuple[i, j]: get the forecasts of game i and timestep (j * timestep_size)
+        Note: Both indexing methods will return forecasts of both A and B
+        """
+        if isinstance(key, tuple):
+            # Two-index tuple like (i, j) -> both teams scalars
+            i, j = key
+            a_val = self.p_A[i, j]
+            b_val = self.p_B[i, j]
+            return (a_val, b_val)
+        else:
+            # Single index [i] -> return entire forecast arrays for game i
+            a_vals = self.p_A[key, :]
+            b_vals = self.p_B[key, :]
+            return (a_vals, b_vals)

@@ -1,19 +1,18 @@
-from evalCUPF.entries import GameEntries
+from evalCUPF.entries import Entries
 from typing import List
 
 
 
 def C_kernel(game_entries, estimate):
+    pass
 
-
-def estimate_C(game_entries: List[GameEntries], estimate="conservative"):
+def estimate_C(entries: Entries, estimate="conservative"):
     """
+    Outputs the covariance matrix, built from the entries of 'entries', using the given estimate. 
     Args:
     - estimate: 'conservative' or 'buckets'
     """
-    timesteps = game_entries.timesteps
 
-    for t in timesteps
 
 def estimate_buckets():
     pass
