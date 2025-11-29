@@ -8,11 +8,14 @@ class Entries:
     Class to hold arrays of probabilities for each timestep in numpy arrays to optimize calculations
     """
     def __init__(self, timestep_size = 0.005):
-        self.timesteps = list(range(0, 1, timestep_size))
+        n_exact = 1 / timestep_size
+        assert np.isclose(n_exact, round(n_exact)), "Choose a timestep_size that is evenly divides the range [0,1]"
+        self.timesteps = list(np.arange(0, 1 + timestep_size, timestep_size))
         self.timestep_size = timestep_size
         self.p_B = None
         self.p_A = None
         self.Y = None
+        self.n = None
     
     def load_entries(self, data: pd.DataFrame, timestep: str, p_A: str, p_B: str, y: str = "Y", id_field: str = "id"):
         """Load entries from a DataFrame grouped by ID field.
@@ -31,14 +34,15 @@ class Entries:
         self.p_B = np.zeros((len(games), len(self.timesteps)))
         self.p_A = np.zeros((len(games), len(self.timesteps)))
         self.Y = np.zeros((len(games), len(self.timesteps)))
+        self.n = len(games)
 
         for i in range(len(games)):
             df = games[i]
-            timestep_col = df[p_A].values
+            timestep_col = df[timestep].values
             p_A_col = df[p_A].values
             p_B_col = df[p_B].values
             Y_col = df[y].values
-            assert len(len(timestep_col) == len(self.timesteps)), f"Make sure that all your entries in your dataframe have the same number of timesteps and match with the expected number of timesteps, based on the given timestep size: {self.timestep_size}."
+            assert (len(timestep_col) == len(self.timesteps)), f"Make sure that all your entries in your dataframe have the same number of timesteps and match with the expected number of timesteps, based on the given timestep size: {self.timestep_size}."
             self.p_A[i, :] = p_A_col
             self.p_B[i, :] = p_B_col
             self.Y[i, :] = Y_col
