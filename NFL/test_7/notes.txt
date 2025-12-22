@@ -1,0 +1,2 @@
+Strategy:
+- Reduce the number of features, keep only the relevant ones based on analysis. Objective: better calibration and minimize error at end times

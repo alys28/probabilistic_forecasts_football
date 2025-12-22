@@ -132,15 +132,6 @@ class DirectClassifier(BaseDirectClassifier):
                              if isinstance(layer, nn.Linear)]) - 1  # Exclude output layer
         }
     
-    def _recreate_model_from_config(self, model_config):
-        """Recreate model from saved configuration"""
-        return DirectPredictionNetwork(
-            input_dim=model_config['input_dim'],
-            hidden_dims=model_config.get('hidden_dims', [64, 32, 16, 8]),
-            dropout_rate=model_config.get('dropout_rate', 0.2),
-            num_layers=model_config.get('num_layers', 4)
-        )
-    
     def _get_model_type_name(self):
         """Get model type name"""
         return 'direct'
@@ -340,110 +331,6 @@ class DirectClassifier(BaseDirectClassifier):
         Return Optuna study object if optimization was run
         """
         return self.optuna_study
-    
-    def save_model(self, filepath_prefix, timesteps_range):
-        """
-        Save the trained model
-        """
-        val_acc = self.final_val_accuracy if self.final_val_accuracy else 0
-        val_loss = self.final_val_loss if self.final_val_loss else 0
-        model_type = self._get_model_type_name()
-        
-        filename = f"{filepath_prefix}_{model_type}_{timesteps_range[0]}.pth"
-        
-        checkpoint = {
-            'model_state_dict': self.model.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
-            'timesteps_range': timesteps_range,
-            'best_epoch': self.best_epoch,
-            'epochs_trained': self.epochs_trained,
-            'final_train_loss': self.final_train_loss,
-            'final_train_accuracy': self.final_train_accuracy,
-            'final_val_loss': self.final_val_loss,
-            'final_val_accuracy': self.final_val_accuracy,
-            'model_config': self._get_model_config(),
-            'use_scaler': self.use_scaler,
-            'scaler_fitted': self.scaler_fitted,
-            'optimize_hyperparams': self.optimize_hyperparams,
-            'n_trials': self.n_trials,
-            'optimization_epochs': self.optimization_epochs
-        }
-        
-        # Save scaler if it exists and is fitted
-        if self.use_scaler and self.scaler_fitted:
-            import pickle
-            checkpoint['scaler'] = pickle.dumps(self.scaler)
-        
-        # Save optimization results if available
-        if self.optimization_results is not None:
-            checkpoint['optimization_results'] = self.optimization_results
-            checkpoint['best_hyperparams'] = self.best_hyperparams
-        
-        torch.save(checkpoint, filename)
-        print(f"Direct prediction {model_type} model saved: {filename}")
-        return filename
-    
-    @classmethod
-    def load_model(cls, filepath, device=None):
-        """
-        Load a saved DirectClassifier model
-        """
-        if device is None:
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
-        checkpoint = torch.load(filepath, map_location=device)
-        
-        # Recreate the model architecture
-        model_config = checkpoint['model_config']
-        direct_network = DirectPredictionNetwork(
-            input_dim=model_config['input_dim'],
-            hidden_dims=model_config.get('hidden_dims', [64, 32, 16, 8]),
-            dropout_rate=model_config.get('dropout_rate', 0.2),
-            num_layers=model_config.get('num_layers', 4)
-        )
-        
-        # Load model state
-        direct_network.load_state_dict(checkpoint['model_state_dict'])
-        direct_network.to(device)
-        
-        # Create classifier instance
-        criterion = nn.BCELoss()
-        optimizer = torch.optim.AdamW(direct_network.parameters(), lr=0.001)
-        
-        # Get scaler info from checkpoint
-        use_scaler = checkpoint.get('use_scaler', True)
-        optimize_hyperparams = checkpoint.get('optimize_hyperparams', False)
-        n_trials = checkpoint.get('n_trials', 30)
-        optimization_epochs = checkpoint.get('optimization_epochs', None)
-        
-        classifier = cls(direct_network, 1, optimizer, criterion, device, 
-                       use_scaler=use_scaler, optimize_hyperparams=optimize_hyperparams,
-                       n_trials=n_trials, optimization_epochs=optimization_epochs)
-        
-        # Restore scaler if it exists
-        if use_scaler and 'scaler' in checkpoint:
-            import pickle
-            classifier.scaler = pickle.loads(checkpoint['scaler'])
-            classifier.scaler_fitted = checkpoint.get('scaler_fitted', False)
-        
-        # Restore training metrics
-        classifier.final_train_loss = checkpoint.get('final_train_loss')
-        classifier.final_train_accuracy = checkpoint.get('final_train_accuracy')
-        classifier.final_val_loss = checkpoint.get('final_val_loss')
-        classifier.final_val_accuracy = checkpoint.get('final_val_accuracy')
-        classifier.best_epoch = checkpoint.get('best_epoch')
-        classifier.epochs_trained = checkpoint.get('epochs_trained')
-        
-        # Restore optimization results if available
-        if 'optimization_results' in checkpoint:
-            classifier.optimization_results = checkpoint['optimization_results']
-            classifier.best_hyperparams = checkpoint.get('best_hyperparams')
-        
-        print(f"Direct prediction model loaded from: {filepath}")
-        print(f"Best epoch: {classifier.best_epoch}, Val Acc: {classifier.final_val_accuracy:.4f}, Val Loss: {classifier.final_val_loss:.4f}")
-        
-        return classifier
-
 
 # Example usage and training script
 def setup_direct_models(training_data, test_data=None, num_models=20, epochs=100, lr=0.001, 
@@ -538,7 +425,7 @@ def setup_direct_models(training_data, test_data=None, num_models=20, epochs=100
             dropout_rate=0.2,  # Lower dropout for smaller network
             num_layers=4
         )
-        criterion = nn.MSELoss()
+        criterion = nn.BCELoss()
         # Slightly higher learning rate for smaller network
         optimizer = torch.optim.AdamW(direct_network.parameters(), lr=lr, weight_decay=0.01)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(

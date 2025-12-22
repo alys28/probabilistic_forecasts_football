@@ -115,16 +115,14 @@ class BaseDirectClassifier(ABC):
         - patience: int for early stopping
         """
         pass
-    
-    @abstractmethod
-    def _get_model_config(self):
+    # def _get_model_config(self):
         """
         Extract model configuration for saving.
         Should return a dict with model architecture parameters.
         """
         pass
     
-    @abstractmethod
+    # @abstractmethod
     def _recreate_model_from_config(self, model_config):
         """
         Recreate model instance from saved configuration.
@@ -380,7 +378,7 @@ class BaseDirectClassifier(ABC):
         preds = self.predict_proba(X)
         return preds[:, 1]
     @classmethod
-    @abstractmethod
+    # @abstractmethod
     def load_model(self, cls, filepath, device=None):
         """
         Load a saved model. Must be implemented by subclasses.

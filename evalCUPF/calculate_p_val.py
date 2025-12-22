@@ -69,7 +69,7 @@ def calculate_p_val(entries: Entries, B = B):
 
 if __name__ == "__main__":
     entries = Entries(0.005)
-    file_path = "NFL/test_6/LR_model_combined_data.csv"
+    file_path = "NFL/test_6/XGBoost_testing_combined_data.csv"
     df = pd.read_csv(file_path)
     entries.load_entries(df, "game_completed", "phat_A", "phat_B", "Y", "game_id")
     p_val = calculate_p_val(entries)
