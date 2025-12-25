@@ -6,7 +6,7 @@ library(purrr)
 # - csv_dir (DONT FORGET TO CHANGE test #)
 # - output_csv (DONT FORGET TO CHANGE test #)
 
-name <- "NN_model"
+name <- "ensemble_model_testing_2"
 # Directory containing the CSV files
 csv_dir <- sprintf(
   "/Users/aly/Documents/University_of_Waterloo/Winter 2025/Research/code/NFL/test_7/%s",

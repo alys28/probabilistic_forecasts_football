@@ -23,7 +23,7 @@ L <- function(x, y) {
 # - dataset_path (CHANGE test #)
 # - CSV File write (CHANGE test #)
 
-name <- "NN_model"
+name <- "ensemble_model_testing_2"
 
 # Data formatting ---------------------------------------------------------
 # Define the path to the dataset
@@ -138,7 +138,7 @@ oh <- calc_pval(ZZ, eig = eigg, quan = c(0.90, 0.95, 0.99), n_MC = N_MC)
 
 temp <- calc_L_s2(df = df_equ, pA = "phat_A", pB = "phat_B")
 print(temp)
-plot_pcb(df = temp, phat_A="ESPN", phat_B = "Neural Network (Single Model)") # TO CHANGE
+plot_pcb(df = temp, phat_A="ESPN", phat_B = "Ensemble Model") # TO CHANGE
 
 
 write.csv(

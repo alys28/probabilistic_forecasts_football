@@ -165,14 +165,8 @@ def process_csv_file_edge_case(file_path, history_length, features, label_featur
 
             # Filter by score_difference (keep only |score_difference| <= 7)
             if "score_difference" in df.columns:
-                try:
-                    sd = float(current_row["score_difference"])
-                    if sd > 7 or sd < -7:
-                        continue
-                except Exception:
-                    # If score_difference can't be cast, skip the row
-                    print(f"  Invalid score_difference in file: {file_path}")
-                    continue
+                sd = int(current_row["score_difference"])
+                if abs(sd) > 7: continue
 
             label = current_row[label_feature]
             try:
@@ -526,6 +520,14 @@ def write_predictions(models, interpolated_dir, years, history_length, features,
                         df.to_csv(file_path, index=False)
                         print("Processed file: ", file)
 
+def replace_model(models, alt_model, CombinedModel, features, threshold: float):
+    new_models = {}
+    for key in models.keys():
+        if key >= threshold:
+            new_models[key] = CombinedModel(models[key], alt_model, features)
+        else:
+            new_models[key] = models[key]
+    return new_models
 
 
 
@@ -553,7 +555,7 @@ def assess_differences(models: List[Model], data, timestep: float, features: Lis
         loss_val_2 = loss(y_test, pred)
         loss_val_3 = loss(y_test, alt_pred)
         diff = loss_val_1 - loss_val_2
-        diff2 = loss_val_3 - loss_val_2
+        diff2 = loss_val_1 - loss_val_3
         total_diff += diff
         total += 1
         total_diff2 += diff2
@@ -578,7 +580,7 @@ def assess_differences(models: List[Model], data, timestep: float, features: Lis
             row_data.extend([item["entry"]["label"], item["predicted"], item["alt_predicted"], item["ESPN"], item["diff"]])
             rows.append(row_data)
         
-        columns = features
+        columns = features.copy()
         columns.extend(["label", "predicted", "alt_predicted", "ESPN", "diff"])
         
         df_results = pd.DataFrame(rows, columns=columns)
