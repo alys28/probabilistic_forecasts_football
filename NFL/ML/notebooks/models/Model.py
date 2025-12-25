@@ -110,7 +110,7 @@ class Model(ABC):
                 ("numeric", StandardScaler(), valid_numeric),
                 ("other", "passthrough", valid_other),
             ],
-            remainder="passthrough",
+            remainder="drop",
         )
 
     def fit_transform_X(self, X: np.ndarray) -> np.ndarray:
@@ -197,4 +197,3 @@ class Model(ABC):
         if plot:
             shap.plots.bar(shap_values)
         return shap_values
-

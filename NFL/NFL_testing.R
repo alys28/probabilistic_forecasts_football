@@ -23,10 +23,15 @@ L <- function(x, y) {
 # - dataset_path (CHANGE test #)
 # - CSV File write (CHANGE test #)
 
-# Data formatting ---------------------------------------------------------=
-# Define the path to the dataset
-dataset_path <- "/Users/aly/Documents/University_of_Waterloo/Winter 2025/Research/code/NFL/test_7/ensemble_model_testing_combined_data.csv" # TO CHANGE
+name <- "NN_model"
 
+# Data formatting ---------------------------------------------------------
+# Define the path to the dataset
+dataset_path <- paste0(
+  "/Users/aly/Documents/University_of_Waterloo/Winter 2025/Research/code/NFL/test_7/",
+  name,
+  "_combined_data.csv"
+)
 # Load the dataset
 dataset <- read.csv(dataset_path)
 
@@ -133,9 +138,17 @@ oh <- calc_pval(ZZ, eig = eigg, quan = c(0.90, 0.95, 0.99), n_MC = N_MC)
 
 temp <- calc_L_s2(df = df_equ, pA = "phat_A", pB = "phat_B")
 print(temp)
-plot_pcb(df = temp, phat_A="ESPN", phat_B = "Ensemble Model") # TO CHANGE
+plot_pcb(df = temp, phat_A="ESPN", phat_B = "Neural Network (Single Model)") # TO CHANGE
 
-write.csv(temp, file = "/Users/aly/Documents/University_of_Waterloo/Winter 2025/Research/code/NFL/test_7/ensemble_model_testing_L2.csv", row.names = FALSE) # TO CHANGE
+
+write.csv(
+  temp,
+  file = sprintf(
+    "/Users/aly/Documents/University_of_Waterloo/Winter 2025/Research/code/NFL/test_7/%s_model_L2.csv",
+    name
+  ),
+  row.names = FALSE
+)
 x = tibble(
   type = ifelse(to_center, "center", "non-center"),
   Z = ZZ,
@@ -144,6 +157,11 @@ x = tibble(
   "95%" = oh$quantile[2],
   "99%" = oh$quantile[3]
 )
-write.csv(x, file="/Users/aly/Documents/University_of_Waterloo/Winter 2025/Research/code/NFL/test_7/ensemble_model_testing_pval.csv") # TO CHANGE
-
+write.csv(
+  x,
+  file = sprintf(
+    "/Users/aly/Documents/University_of_Waterloo/Winter 2025/Research/code/NFL/test_7/%s_model_pval.csv",
+    name
+  )
+)
 

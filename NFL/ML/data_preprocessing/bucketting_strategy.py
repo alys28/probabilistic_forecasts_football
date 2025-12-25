@@ -185,6 +185,6 @@ if __name__ == "__main__":
     for key, df_list in data.items():
         if key == "2018":
             print(key)
-            visualize_buckets(data[key], timestep=0.99)
+            visualize_buckets(data[key], timestep=0.495)
     # x = get_closest_timestep(0.95, 0.005, 0.002)
     # print(x)

@@ -357,71 +357,96 @@ def setup_direct_models(training_data, test_data=None, num_models=20, epochs=100
         Dictionary of trained neural network models by timestep range
     """
     models = {}
+    range_size = 1.0 / num_models
     for i in range(num_models):
-        # Define timestep range
-        range_size = 1.0 / (num_models - 1)
+        # Define timestep range (no rounding)
         start_time = round(i * range_size, 3)
         end_time = round((i + 1) * range_size, 3)
-        timesteps_range = [start_time, end_time]
-        
-        # Collect data for this timestep range
+
         X, y = [], []
         X_test, y_test = [], []
-        
-        for timestep in training_data:
-            if timestep >= timesteps_range[0] and timestep < timesteps_range[1]:
-                for row in training_data[timestep]:
-                    X.append(np.array(row['rows'], dtype=np.float32))
-                    y.append(np.array(row['label'], dtype=np.float32))
-        if test_data:
-            for timestep in test_data:
-                if timestep >= timesteps_range[0] and timestep < timesteps_range[1]:
-                    for row in test_data[timestep]:
-                        X_test.append(np.array(row['rows'], dtype=np.float32))
-                        y_test.append(np.array(row['label'], dtype=np.float32))
+
+        # -------- Collect training data --------
+        for timestep, rows in training_data.items():
+            in_range = (
+                start_time <= timestep < end_time
+                if i < num_models - 1
+                else start_time <= timestep <= 1.0
+            )
+
+            if in_range:
+                for row in rows:
+                    X.append(np.asarray(row["rows"], dtype=np.float32))
+                    y.append(np.asarray(row["label"], dtype=np.float32))
+
+        if test_data is not None:
+            for timestep, rows in test_data.items():
+                in_range = (
+                    start_time <= timestep < end_time
+                    if i < num_models - 1
+                    else start_time <= timestep <= 1.0
+                )
+
+                if in_range:
+                    for row in rows:
+                        X_test.append(np.asarray(row["rows"], dtype=np.float32))
+                        y_test.append(np.asarray(row["label"], dtype=np.float32))
 
         if len(X) == 0:
-            print(f"No data for timestep range {timesteps_range}, skipping...")
+            print(f"No data for timestep range [{start_time:.3f}, {end_time:.3f}), skipping...")
             continue
-        
-        # Handle validation data - either use provided test_data or split training data
-        X_full = np.array(X, dtype=np.float32)
-        y_full = np.array(y, dtype=np.float32)
-        
-        # Flatten the input data for neural network (convert from 3D to 2D)
-        print(f"Original data shape: {X_full.shape}")
+
+        X_full = np.asarray(X, dtype=np.float32)
+        y_full = np.asarray(y, dtype=np.float32)
+
+        # Flatten (N, ...) → (N, D)
         X_full_flattened = X_full.reshape(X_full.shape[0], -1)
-        print(f"Flattened data shape: {X_full_flattened.shape}")
-        
-        if test_data and len(X_test) > 0:
-            # Use provided test data as validation
+
+        if test_data is not None and len(X_test) > 0:
+            # Use provided test data
             X_train = X_full_flattened
             y_train = y_full
-            X_test_array = np.array(X_test, dtype=np.float32)
-            X_val = X_test_array.reshape(X_test_array.shape[0], -1)
-            y_val = np.array(y_test, dtype=np.float32)
-            print(f"Using provided test data as validation: {len(X_train)} train, {len(X_val)} validation")
+
+            X_test_arr = np.asarray(X_test, dtype=np.float32)
+            X_val = X_test_arr.reshape(X_test_arr.shape[0], -1)
+            y_val = np.asarray(y_test, dtype=np.float32)
+
+            print(
+                f"Range [{start_time:.3f}, {end_time:.3f}): "
+                f"{len(X_train)} train, {len(X_val)} validation"
+            )
+
         else:
-            # Split training data: 90% train, 10% validation
-            if len(X_full_flattened) < 10:
-                # If too few samples, use all for training
+            # Internal split
+            if len(X_full_flattened) < 10 or len(np.unique(y_full)) < 2:
+                # Too small or not stratifiable
                 X_train, y_train = X_full_flattened, y_full
                 X_val, y_val = None, None
-                print(f"Too few samples ({len(X_full_flattened)}) for splitting, using all for training")
+
+                print(
+                    f"Range [{start_time:.3f}, {end_time:.3f}): "
+                    f"{len(X_train)} samples — no validation split"
+                )
             else:
                 X_train, X_val, y_train, y_val = train_test_split(
-                    X_full_flattened, y_full, test_size=0.1, random_state=42, stratify=y_full
+                    X_full_flattened,
+                    y_full,
+                    test_size=0.1,
+                    random_state=42,
+                    stratify=y_full,
                 )
-                print(f"Split training data: {len(X_train)} train, {len(X_val)} validation")
-        
-        print(f"\nTraining direct prediction model for timestep range {timesteps_range}")
-        
+
+                print(
+                    f"Range [{start_time:.3f}, {end_time:.3f}): "
+                    f"{len(X_train)} train, {len(X_val)} validation"
+                )
+
         # Setup model optimized for NFL play prediction
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
         direct_network = DirectPredictionNetwork(
             input_dim=X_train.shape[1],  # Now correctly using flattened dimension
-            hidden_dims=[hidden_dim, hidden_dim//2, hidden_dim//4, hidden_dim//8],
+            hidden_dims=[hidden_dim * 2, hidden_dim, hidden_dim//4, hidden_dim//8],
             dropout_rate=0.2,  # Lower dropout for smaller network
             num_layers=4
         )
@@ -436,17 +461,21 @@ def setup_direct_models(training_data, test_data=None, num_models=20, epochs=100
         classifier = DirectClassifier(direct_network, epochs, optimizer, criterion, device, features=features, scheduler=scheduler, 
                                     use_scaler=use_scaler, optimize_hyperparams=optimize_hyperparams, 
                                     n_trials=n_trials)
-        
         # Train the model (scaler is handled internally)
         classifier.fit(X_train, y_train, val_X=X_val, val_y=y_val, batch_size=batch_size)
-        if save_model: 
-            # Save the model
-            model_save_dir = "saved_models"
-            os.makedirs(model_save_dir, exist_ok=True)
-            model_prefix = os.path.join(model_save_dir, "nfl_direct_model")
-            saved_filepath = classifier.save_model(model_prefix, timesteps_range)
-        
-        models[timesteps_range[0]] = classifier
+        # if save_model: 
+        #     # Save the model
+        #     model_save_dir = "saved_models"
+        #     os.makedirs(model_save_dir, exist_ok=True)
+        #     model_prefix = os.path.join(model_save_dir, "nfl_direct_model")
+        #     saved_filepath = classifier.save_model(model_prefix, timesteps_range)
+        BIN = 0.005
+        # First timestep key in this range (aligned to 0.005 grid)
+        t = start_time 
+        while t < end_time or (round(end_time, 3) == 1 and t <= end_time):
+            t_key = round(t, 3)  # keys like 0.005, 0.010, ...
+            models[t_key] = classifier
+            t += BIN
         print(f"NFL direct model {i+1}/{num_models} completed")
         
     return models

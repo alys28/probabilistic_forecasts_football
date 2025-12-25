@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass
 
 
-FEATURES = ["game_completed", "relative_strength", "score_difference", "type.id", "home_has_possession", "end.down", "end.yardsToEndzone", "end.distance", "field_position_shift", "home_timeouts_left", "away_timeouts_left"]
+FEATURES = ["relative_strength", "score_difference", "home_has_possession", "end.down", "end.yardsToEndzone", "end.distance", "home_timeouts_left", "away_timeouts_left"]
 
 @dataclass
 class SHAP_Output:
@@ -97,16 +97,13 @@ class SHAP_over_time:
 
 
 if __name__ == "__main__":
-    shap_dir = "shap_values"
-    shap_over_time = SHAP_over_time(FEATURES)
-    for model_dir in os.listdir(shap_dir):
-        if not os.path.isdir(os.path.join(shap_dir, model_dir)):
-            continue
-        for file in os.listdir(os.path.join(shap_dir, model_dir)):
-            file_dir = os.path.join(shap_dir, model_dir, file)
-            shap_output = load_SHAP_output(file_dir)
-            timestep = os.path.splitext(file)[0].split("_")[-1]
-            timestep = float(timestep)
-            shap_over_time.add_timestep(timestep, shap_output)
+    shap_model_dir = "shap_values/LR"
+    shap_over_time = SHAP_over_time(FEATURES) 
+    for file in os.listdir(shap_model_dir):
+        file_dir = os.path.join(shap_model_dir, file)
+        shap_output = load_SHAP_output(file_dir)
+        timestep = os.path.splitext(file)[0].split("_")[-1]
+        timestep = float(timestep)
+        shap_over_time.add_timestep(timestep, shap_output)
     shap_over_time.normalize_timesteps()
     shap_over_time.plot()

@@ -6,6 +6,8 @@ import torch
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import multiprocessing as mp
+from models.Model import Model
+from typing import List
 
 def process_csv_file(file_path, history_length, features, label_feature, replace_nan_val, train):
     """
@@ -69,7 +71,7 @@ def process_csv_file(file_path, history_length, features, label_feature, replace
             else:
                 file_data.append({
                     "key": round(current_row["timestep"], 3),
-                    "data": {"rows": final_rows_for_timestep, "label": label_float, "model": round(current_row["model"], 3)}
+                    "data": {"rows": final_rows_for_timestep, "label": label_float, "model": round(current_row["model"], 3), "homeWinProbability": current_row["homeWinProbability"]}
                 })
     except Exception as e:
         print(f"Error processing file {file_path}: {e}")
@@ -129,6 +131,158 @@ def load_data(interpolated_dir, years, history_length, features, label_feature, 
                 print("skipping ", folder)
     training_data = dict(sorted(training_data.items()))
     return training_data
+
+
+def process_csv_file_edge_case(file_path, history_length, features, label_feature, replace_nan_val, train, threshold):
+    """Process a single CSV for edge-case loader (filters by timestep and score_difference)."""
+    file_data = []
+    try:
+        df = pd.read_csv(file_path)
+        df.loc[1:, "relative_strength"] = df.iloc[0]["homeWinProbability"]
+        df.loc[1:, "away_team_id"] = df.iloc[0]["away_team_id"]
+        df.loc[1:, "home_team_id"] = df.iloc[0]["home_team_id"]
+        df.loc[1:, "home_win"] = df.iloc[0]["home_win"]
+        seen_sequence_numbers = set()
+        for idx in range(1, len(df)):
+            current_row = df.iloc[idx]
+            # Ensure unique sequenceNumber
+            seq_val = current_row["sequenceNumber"]
+                # Normalize to int or string for set membership
+            seq_key = int(seq_val)
+            if seq_key in seen_sequence_numbers:
+                # Duplicate sequence number - skip
+                continue
+            seen_sequence_numbers.add(seq_key)
+
+            # Filter by minimum timestep
+            try:
+                timestep_val = float(current_row["timestep"])
+            except Exception:
+                print(f"  Invalid timestep in file: {file_path}")
+                continue
+            if timestep_val < threshold:
+                continue
+
+            # Filter by score_difference (keep only |score_difference| <= 7)
+            if "score_difference" in df.columns:
+                try:
+                    sd = float(current_row["score_difference"])
+                    if sd > 7 or sd < -7:
+                        continue
+                except Exception:
+                    # If score_difference can't be cast, skip the row
+                    print(f"  Invalid score_difference in file: {file_path}")
+                    continue
+
+            label = current_row[label_feature]
+            try:
+                label_float = float(label)
+                if np.isnan(label_float):
+                    print(f"  NaN Label found in file: {file_path}")
+                    break
+            except (ValueError, TypeError):
+                print(f"  Invalid label in file: {file_path}")
+                continue
+
+            # Check for NaN in current row features (safer method)
+            try:
+                current_row_features = current_row[features].to_numpy(dtype=np.float32)
+                if np.isnan(current_row_features).any():
+                    print(f"  NaN found in file: {file_path}")
+                    current_row_features = np.nan_to_num(current_row_features, nan=0.0)
+            except (ValueError, TypeError):
+                print(f"  Invalid features in file: {file_path}")
+                continue
+
+            current_row_np = current_row_features.reshape(1, -1)
+            start_idx = max(1, idx - history_length)
+            actual_history_len = idx - start_idx
+
+            # Check for NaN in history rows (safer method)
+            if history_length > 0:
+                history_rows = df.iloc[start_idx:idx][features].to_numpy(dtype=np.float32)
+                if np.isnan(history_rows).any():
+                    print(f"  NaN found in file: {file_path}")
+                    history_rows = np.nan_to_num(history_rows, nan=0.0)
+
+                if actual_history_len < history_length:
+                    padding = np.zeros((history_length - actual_history_len, len(features)))
+                    history_rows = np.concatenate([padding, history_rows], axis=0)
+
+                final_rows_for_timestep = np.concatenate([history_rows, current_row_np], axis=0)
+            else:
+                final_rows_for_timestep = current_row_np.reshape(-1)
+
+            if train:
+                file_data.append(
+                    {"rows": final_rows_for_timestep, "label": label_float}
+                )
+            else:
+                file_data.append(
+                    {"rows": final_rows_for_timestep, "label": label_float, "model": round(current_row["model"], 3), "homeWinProbability": current_row["homeWinProbability"]}
+                )
+    except Exception as e:
+        print(f"Error processing file {file_path}: {e}")
+        return []
+
+    return file_data
+
+
+def load_edge_case_data(interpolated_dir, years, history_length, features, label_feature, threshold=0.0, replace_nan_val = 0, train = True, max_workers=None):
+    """
+    Load data from CSV files similar to `load_data` but only include rows whose
+    timestep >= threshold and whose `score_difference` is between -7 and 7 (inclusive).
+
+    Args:
+        threshold: minimum timestep to include (float between 0 and 1)
+        max_workers: Number of parallel workers. If None, uses CPU count (capped at 8).
+    """
+    training_data = []
+
+    # Set default max_workers if not specified
+    if max_workers is None:
+        max_workers = min(mp.cpu_count(), 8)
+
+    for folder in os.listdir(interpolated_dir):
+        folder_path = os.path.join(interpolated_dir, folder)
+        print(f"Loading data for {folder}")
+        if os.path.isdir(folder_path):
+            if (int(folder) in years):
+                # Collect all CSV file paths for this year
+                csv_files = []
+                for file in os.listdir(folder_path):
+                    if file.endswith(".csv"):
+                        file_path = os.path.join(folder_path, file)
+                        csv_files.append(file_path)
+
+                # Process CSV files in parallel
+                if csv_files:
+                    print(f"  Processing {len(csv_files)} CSV files in parallel with {max_workers} workers...")
+                    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                        # Submit all tasks
+                        future_to_file = {
+                            executor.submit(process_csv_file_edge_case, file_path, history_length, features, label_feature, replace_nan_val, train, threshold): file_path
+                            for file_path in csv_files
+                        }
+
+                        # Collect results as they complete
+                        for future in as_completed(future_to_file):
+                            file_path = future_to_file[future]
+                            try:
+                                file_data = future.result()
+                                # Merge the results into training_data
+                                for item in file_data:
+                                    training_data.append(item)
+                            except Exception as e:
+                                print(f"Error processing file {file_path}: {e}")
+
+                    print(f"  Completed processing {folder}")
+            else:
+                print("skipping ", folder)
+    return training_data
+
+def augment_data():
+    pass
 
 def feature_selection(data, features, replace_nan_val = 0):
     # Given the features of the data, return data such that each row is an array of the values of the features
@@ -371,3 +525,67 @@ def write_predictions(models, interpolated_dir, years, history_length, features,
                             df.at[idx, phat_b] = pred
                         df.to_csv(file_path, index=False)
                         print("Processed file: ", file)
+
+
+
+
+def assess_differences(models: List[Model], data, timestep: float, features: List[str], loss = Model.brier_loss, threshold = 0.01, alt_model = None):
+    """Prints the entries that have a loss >= a given threshold
+    Args:
+    model: Model
+    data: Output from load_data
+    timestep: 0-1
+    loss: loss function
+    threshold: 0-1
+    """
+    entries_above_threshold = []
+    model = models[timestep]
+    total = 0
+    total_diff = 0
+    total_diff2 = 0
+    for entry in data[timestep]:
+        X_test = entry["rows"]
+        y_test = entry["label"]
+        y_espn = np.array(entry["homeWinProbability"])
+        pred = model.predict_proba(np.array([X_test]))[:, 1]
+        alt_pred = alt_model.predict_proba(np.array([X_test]))[:, 1]
+        loss_val_1 = loss(y_test, y_espn)
+        loss_val_2 = loss(y_test, pred)
+        loss_val_3 = loss(y_test, alt_pred)
+        diff = loss_val_1 - loss_val_2
+        diff2 = loss_val_3 - loss_val_2
+        total_diff += diff
+        total += 1
+        total_diff2 += diff2
+        if abs(diff) >= threshold:
+            entries_above_threshold.append({
+                "entry": entry,
+                "predicted": pred.item(),
+                "alt_predicted": alt_pred.item(),
+                "ESPN": y_espn,
+                "diff": diff
+            })
+    
+    print(total)
+    print(total_diff / total)
+    print(total_diff2 / total)
+    # Convert entries to a table format
+    if entries_above_threshold:
+        rows = []
+        for i, item in enumerate(entries_above_threshold, 1):
+            row_data = []  # Add entry number
+            row_data.extend(item["entry"]["rows"].flatten().tolist())
+            row_data.extend([item["entry"]["label"], item["predicted"], item["alt_predicted"], item["ESPN"], item["diff"]])
+            rows.append(row_data)
+        
+        columns = features
+        columns.extend(["label", "predicted", "alt_predicted", "ESPN", "diff"])
+        
+        df_results = pd.DataFrame(rows, columns=columns)
+        df_results = df_results.sort_values(by="diff", ascending=True)
+        df_results.reset_index(drop=True, inplace=True)
+        print(df_results.to_string())
+    else:
+        print("No entries above threshold")
+
+    

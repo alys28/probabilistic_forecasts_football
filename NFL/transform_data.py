@@ -7,7 +7,7 @@ import os
 # - phat_b (below)
 
 # Directory containing CSV files
-directory = "test_7/ensemble_model_testing"  # Change this to your actual directory
+directory = "test_7/NN_model"  # Change this to your actual directory
 
 # Function to process a CSV file
 def process_csv(file_path, phat_A, phat_b, interpolate = False, steps = 0.01):
@@ -24,12 +24,12 @@ def process_csv(file_path, phat_A, phat_b, interpolate = False, steps = 0.01):
     # Compute percentage of game completed
     df["game_completed"] = 1 - df["minutes_remaining"] / 60
     
-    # Assign phat_A from home_win_probability
-    df["phat_A"] = df["homeWinProbability"]
-    
     # Assign phat_B as the first value of home_win_probability
+    df["phat_A"] = df["homeWinProbability"].iloc[0]
     df["phat_B"] = df["homeWinProbability"].iloc[0]
     df["Y"] = df["home_win"].iloc[0]
+    # Assign phat_A from home_win_probability
+    df["phat_A"] = df["homeWinProbability"]
     if interpolate:
         # Interpolation for fixed game_completed values
         new_game_completed = np.arange(0, 1 + steps, steps)
@@ -66,5 +66,5 @@ if __name__ == "__main__":
         if filename.endswith(".csv"):
             file_path = os.path.join(directory, filename)
             print(file_path)
-            process_csv(file_path, "homeWinProbability", "ensemble_phat_b_model", False, 0.005)  # Interpolate with 0.5% steps
+            process_csv(file_path, "homeWinProbability", "NN_phat_b", False, 0.005)  # Interpolate with 0.5% steps
     print("Processing complete for all CSV files in the directory.")
