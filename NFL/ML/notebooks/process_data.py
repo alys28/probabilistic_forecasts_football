@@ -138,87 +138,172 @@ def process_csv_file_edge_case(file_path, history_length, features, label_featur
     file_data = []
     try:
         df = pd.read_csv(file_path)
+        
+        # Set game-level constants from first row
         df.loc[1:, "relative_strength"] = df.iloc[0]["homeWinProbability"]
         df.loc[1:, "away_team_id"] = df.iloc[0]["away_team_id"]
         df.loc[1:, "home_team_id"] = df.iloc[0]["home_team_id"]
         df.loc[1:, "home_win"] = df.iloc[0]["home_win"]
+        
+        # ADD CRITICAL DERIVED FEATURES
+        # Possession-score interactions
+        df["home_winning"] = (df["score_difference"] > 0).astype(int)
+        df["away_winning"] = (df["score_difference"] < 0).astype(int)
+        df["tied"] = (df["score_difference"] == 0).astype(int)
+        
+        df["home_winning_with_ball"] = df["home_winning"] * df["home_has_possession"]
+        df["home_winning_no_ball"] = df["home_winning"] * (1 - df["home_has_possession"])
+        df["away_winning_with_ball"] = df["away_winning"] * (1 - df["home_has_possession"])
+        df["away_winning_no_ball"] = df["away_winning"] * df["home_has_possession"]
+        
+        # Time remaining (more granular than game_completed)
+        df["time_remaining_pct"] = 1.0 - df["game_completed"]
+        
+        # Score-time interaction
+        df["score_diff_x_time"] = df["score_difference"] * df["time_remaining_pct"]
+        
+        # Points needed for trailing team
+        df["abs_score_diff"] = df["score_difference"].abs()
+        df["needs_fg_only"] = (df["abs_score_diff"] <= 3).astype(int)
+        df["needs_td_only"] = ((df["abs_score_diff"] > 3) & (df["abs_score_diff"] <= 7)).astype(int)
+        df["needs_multiple_scores"] = (df["abs_score_diff"] > 8).astype(int)
+        
+        # Field position value (distance to FG range ~37 yards)
+        if "end.yardsToEndzone" in df.columns:
+            df["yards_to_fg_range"] = (df["end.yardsToEndzone"] - 37).clip(lower=0)
+            df["in_fg_range"] = (df["end.yardsToEndzone"] <= 37).astype(int)
+            df["in_red_zone"] = (df["end.yardsToEndzone"] <= 20).astype(int)
+        
+        # Timeout advantage
+        df["timeout_diff"] = df["home_timeouts_left"] - df["away_timeouts_left"]
+        
+        # Can run out clock (leading team with ball and sufficient time)
+        # Approximate: each kneel = 40 seconds, defensive timeouts can stop clock
+        if "home_has_possession" in df.columns and "home_timeouts_left" in df.columns:
+            df["possessing_team_timeouts"] = np.where(
+                df["home_has_possession"] == 1,
+                df["home_timeouts_left"],
+                df["away_timeouts_left"]
+            )
+            df["defending_team_timeouts"] = np.where(
+                df["home_has_possession"] == 1,
+                df["away_timeouts_left"],
+                df["home_timeouts_left"]
+            )
+        
+        # Update features list to include new derived features
+        derived_features = [
+            "home_winning_with_ball", "home_winning_no_ball",
+            "away_winning_with_ball", "away_winning_no_ball",
+            "tied", "time_remaining_pct", "score_diff_x_time",
+            "needs_fg_only", "needs_td_only", "needs_multiple_scores",
+            "timeout_diff"
+        ]
+        
+        if "end.yardsToEndzone" in df.columns:
+            derived_features.extend(["yards_to_fg_range", "in_fg_range", "in_red_zone"])
+        
+        # Add derived features to feature list
+        all_features = features + [f for f in derived_features if f in df.columns]
+        
         seen_sequence_numbers = set()
+        
         for idx in range(1, len(df)):
             current_row = df.iloc[idx]
+            
             # Ensure unique sequenceNumber
             seq_val = current_row["sequenceNumber"]
-                # Normalize to int or string for set membership
             seq_key = int(seq_val)
             if seq_key in seen_sequence_numbers:
-                # Duplicate sequence number - skip
                 continue
             seen_sequence_numbers.add(seq_key)
-
+            
             # Filter by minimum timestep
             try:
                 timestep_val = float(current_row["timestep"])
             except Exception:
                 print(f"  Invalid timestep in file: {file_path}")
                 continue
+            
             if timestep_val < threshold:
                 continue
-
+            
             # Filter by score_difference (keep only |score_difference| <= 7)
             if "score_difference" in df.columns:
-                sd = int(current_row["score_difference"])
-                if abs(sd) > 7: continue
-
-            label = current_row[label_feature]
+                try:
+                    sd = float(current_row["score_difference"])
+                    if abs(sd) > 7:
+                        continue
+                except (ValueError, TypeError):
+                    continue
+            
+            # Get label
             try:
-                label_float = float(label)
+                label_float = float(current_row[label_feature])
                 if np.isnan(label_float):
-                    print(f"  NaN Label found in file: {file_path}")
-                    break
+                    print(f"  NaN Label found in file: {file_path}, skipping row")
+                    continue
             except (ValueError, TypeError):
                 print(f"  Invalid label in file: {file_path}")
                 continue
-
-            # Check for NaN in current row features (safer method)
+            
+            # Get current row features with NaN handling
             try:
-                current_row_features = current_row[features].to_numpy(dtype=np.float32)
+                current_row_features = current_row[all_features].to_numpy(dtype=np.float32)
                 if np.isnan(current_row_features).any():
-                    print(f"  NaN found in file: {file_path}")
-                    current_row_features = np.nan_to_num(current_row_features, nan=0.0)
-            except (ValueError, TypeError):
-                print(f"  Invalid features in file: {file_path}")
+                    current_row_features = np.nan_to_num(current_row_features, nan=replace_nan_val)
+            except (ValueError, TypeError) as e:
+                print(f"  Invalid features in file: {file_path}, error: {e}")
                 continue
-
+            
             current_row_np = current_row_features.reshape(1, -1)
-            start_idx = max(1, idx - history_length)
-            actual_history_len = idx - start_idx
-
-            # Check for NaN in history rows (safer method)
+            
+            # Handle history
             if history_length > 0:
-                history_rows = df.iloc[start_idx:idx][features].to_numpy(dtype=np.float32)
-                if np.isnan(history_rows).any():
-                    print(f"  NaN found in file: {file_path}")
-                    history_rows = np.nan_to_num(history_rows, nan=0.0)
-
+                start_idx = max(1, idx - history_length)
+                actual_history_len = idx - start_idx
+                
+                try:
+                    history_rows = df.iloc[start_idx:idx][all_features].to_numpy(dtype=np.float32)
+                    if np.isnan(history_rows).any():
+                        history_rows = np.nan_to_num(history_rows, nan=replace_nan_val)
+                except (ValueError, TypeError) as e:
+                    print(f"  Invalid history features in file: {file_path}, error: {e}")
+                    continue
+                
+                # Pad if necessary
                 if actual_history_len < history_length:
-                    padding = np.zeros((history_length - actual_history_len, len(features)))
+                    padding = np.full((history_length - actual_history_len, len(all_features)), replace_nan_val)
                     history_rows = np.concatenate([padding, history_rows], axis=0)
-
+                
                 final_rows_for_timestep = np.concatenate([history_rows, current_row_np], axis=0)
             else:
                 final_rows_for_timestep = current_row_np.reshape(-1)
-
+            
+            # Build output dict
             if train:
-                file_data.append(
-                    {"rows": final_rows_for_timestep, "label": label_float}
-                )
+                file_data.append({
+                    "rows": final_rows_for_timestep,
+                    "label": label_float
+                })
             else:
-                file_data.append(
-                    {"rows": final_rows_for_timestep, "label": label_float, "model": round(current_row["model"], 3), "homeWinProbability": current_row["homeWinProbability"]}
-                )
+                try:
+                    file_data.append({
+                        "rows": final_rows_for_timestep,
+                        "label": label_float,
+                        "model": round(float(current_row["model"]), 3),
+                        "homeWinProbability": float(current_row["homeWinProbability"])
+                    })
+                except (KeyError, ValueError, TypeError) as e:
+                    print(f"  Missing model/homeWinProbability in file: {file_path}, error: {e}")
+                    continue
+                    
     except Exception as e:
         print(f"Error processing file {file_path}: {e}")
+        import traceback
+        traceback.print_exc()
         return []
-
+    
     return file_data
 
 
@@ -520,16 +605,6 @@ def write_predictions(models, interpolated_dir, years, history_length, features,
                         df.to_csv(file_path, index=False)
                         print("Processed file: ", file)
 
-def replace_model(models, alt_model, CombinedModel, features, threshold: float):
-    new_models = {}
-    for key in models.keys():
-        if key >= threshold:
-            new_models[key] = CombinedModel(models[key], alt_model, features)
-        else:
-            new_models[key] = models[key]
-    return new_models
-
-
 
 def assess_differences(models: List[Model], data, timestep: float, features: List[str], loss = Model.brier_loss, threshold = 0.01, alt_model = None):
     """Prints the entries that have a loss >= a given threshold
@@ -555,11 +630,11 @@ def assess_differences(models: List[Model], data, timestep: float, features: Lis
         loss_val_2 = loss(y_test, pred)
         loss_val_3 = loss(y_test, alt_pred)
         diff = loss_val_1 - loss_val_2
-        diff2 = loss_val_1 - loss_val_3
-        total_diff += diff
-        total += 1
-        total_diff2 += diff2
         if abs(diff) >= threshold:
+            diff2 = loss_val_1 - loss_val_3
+            total_diff += diff
+            total += 1
+            total_diff2 += diff2
             entries_above_threshold.append({
                 "entry": entry,
                 "predicted": pred.item(),

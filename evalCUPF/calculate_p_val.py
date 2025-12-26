@@ -20,6 +20,7 @@ def generate_GP(mean_t, cov_matrix: np.ndarray, time_grid: np.ndarray):
     except np.linalg.LinAlgError:
         # fallback: eigendecomposition
         eigvals, eigvecs = np.linalg.eigh(cov_matrix)
+        print(eigvals)
         eigvals[eigvals < 0] = 0.0    # clip small negatives
         L = eigvecs * np.sqrt(eigvals)[None, :]
     z = rng.normal(size=(cov_matrix.shape[0],))
@@ -69,9 +70,8 @@ def calculate_p_val(entries: Entries, B = B):
 
 if __name__ == "__main__":
     entries = Entries(0.005)
-    file_path = "NFL/test_7/LR_model_combined_data.csv"
+    file_path = "NFL/test_7/ensemble_model_testing_2_combined_data.csv"
     df = pd.read_csv(file_path)
     entries.load_entries(df, "game_completed", "phat_A", "phat_B", "Y", "game_id")
     p_val = calculate_p_val(entries)
     print(p_val)
-    
