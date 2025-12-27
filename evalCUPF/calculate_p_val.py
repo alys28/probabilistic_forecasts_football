@@ -26,6 +26,24 @@ def generate_GP(mean_t, cov_matrix: np.ndarray, time_grid: np.ndarray):
     z = rng.normal(size=(cov_matrix.shape[0],))
     return L @ z + mean_vec
 
+
+def _compute_decomposition(cov_matrix: np.ndarray, jitter: float = 1e-10):
+    """Return a matrix L such that L @ L.T approximates cov_matrix.
+    Tries Cholesky (with a tiny jitter) then falls back to eigendecomposition.
+    """
+    # enforce symmetry
+    cov = 0.5 * (cov_matrix + cov_matrix.T)
+    try:
+        return np.linalg.cholesky(cov)
+    except np.linalg.LinAlgError:
+        # try adding a small jitter to the diagonal
+        try:
+            return np.linalg.cholesky(cov + np.eye(cov.shape[0]) * jitter)
+        except np.linalg.LinAlgError:
+            eigvals, eigvecs = np.linalg.eigh(cov)
+            eigvals[eigvals < 0] = 0.0
+            return eigvecs * np.sqrt(eigvals)[None, :]
+
 def brier_loss(y_true: np.ndarray, y_pred: np.ndarray): 
         """Calculates Brier loss for matrices (mean squared error between predictions and binary outcomes)
         Args:
@@ -49,23 +67,38 @@ def calculate_delta(entries: Entries, loss_fn = brier_loss) -> np.ndarray:
       loss_diff = loss_fn(Y, pA) - loss_fn(Y, pB)
       return loss_diff.mean(axis=0)
 
-def calculate_p_val(entries: Entries, B = B):
-    # Generate B GPs
-    covariance_matrix = estimate_C(entries, None) # NEED TO CHECK IF POSITIVE SEMIDEFINITE
+def calculate_p_val(entries: Entries, B: int = B, chunk_size: int = 1000):
+    """Estimate the p-value by simulating B Gaussian process suprema.
+
+    This implementation precomputes a decomposition of the covariance matrix
+    and generates samples in vectorized chunks to avoid repeated decompositions
+    and per-sample Python loops (much faster for large B).
+    """
+    covariance_matrix = estimate_C(entries, None)
     n = entries.n
+
     # Compute T_n
     delta_n = calculate_delta(entries, brier_loss)
     sqrt_n_delta = np.sqrt(n) * delta_n
     T_n = np.max(np.abs(sqrt_n_delta))
-    p = 0
-    for i in range(B):
-        if i % 1000 == 0:
-            print(i)
-        gp_sample = generate_GP(lambda t: 0, covariance_matrix, entries.timesteps)
-        sup_gp = np.max(np.abs(gp_sample))
-        if T_n >= sup_gp:
-             p += 1
-    p_val = 1 - p / B
+
+    m = covariance_matrix.shape[0]
+    L = _compute_decomposition(covariance_matrix)
+    mean_vec = np.zeros(m)
+    rng = np.random.default_rng()
+
+    count_le = 0
+    # sample in chunks to limit memory usage
+    for start in range(0, B, chunk_size):
+        current = min(chunk_size, B - start)
+        Z = rng.normal(size=(m, current))
+        samples = L @ Z
+        # add mean if non-zero (kept for generality)
+        if np.any(mean_vec):
+            samples = samples + mean_vec[:, None]
+        sup_gp = np.max(np.abs(samples), axis=0)
+        count_le += int(np.sum(sup_gp <= T_n))
+    p_val = 1 - count_le / B
     return p_val
 
 if __name__ == "__main__":

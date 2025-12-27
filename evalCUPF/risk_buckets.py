@@ -9,7 +9,7 @@ class Bucketer(ABC):
     """
     Abstract class for a risk bucket strategy. One Bucketer object must be created per timestep.
     """
-    def __init__(self, features: List[str], data: np.ndarray | Any, start, end):
+    def __init__(self, features: List[str], data: np.ndarray | Any, labels, start, end):
         """
         Note: the order of the features is assumed to be the same as the data's order feature-wise.
         """
@@ -110,12 +110,13 @@ def bucket_data_by_interval(
         dfs.append(df[cols_needed])
 
     all_df = pd.concat(dfs, ignore_index=True)
-    container = IntervalBucketContainer()
-
+    container = BucketContainer()
+    EPS = 1e-10
     # Create intervals (e.g., equal-length buckets in [0,1])
     interval_edges = np.linspace(0, 1, num_bucketers + 1)
     for i in range(num_bucketers):
-        start, end = interval_edges[i], interval_edges[i + 1]
+        start = interval_edges[i]
+        end = interval_edges[i + 1] - (EPS if i < num_bucketers - 1 else 0)
         # Filter rows belonging to this interval
         mask = (all_df[timestep_col] >= start) & (all_df[timestep_col] <= end)
         interval_data = all_df.loc[mask, features].to_numpy()
