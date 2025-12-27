@@ -1,16 +1,27 @@
 from abc import ABC, abstractmethod
 import numpy as np
+from typing import List, Any
+import os
+import pandas as pd
+import bisect
+
 class Bucketer(ABC):
     """
     Abstract class for a risk bucket strategy. One Bucketer object must be created per timestep.
     """
-    def __init__(self):
+    def __init__(self, features: List[str], data: np.ndarray | Any, start, end):
+        """
+        Note: the order of the features is assumed to be the same as the data's order feature-wise.
+        """
         self.buckets = {}
+        self.start = start
+        self.end = end
+        self.features = features
         self.v = {} # estimator for each bucket
-        self._preprocess_strategy()
+        self._preprocess_strategy(data)
 
     @abstractmethod
-    def _preprocess_strategy(self):
+    def _preprocess_strategy(self, data):
         """
         Strategy to organize given data into bucket groups.
         """
@@ -42,21 +53,76 @@ class Bucketer(ABC):
     
 class BucketContainer:
     def __init__(self):
-        self._bucketers = {}
+        self.intervals = [] # (start, end, bucket)
 
-    def __getitem__(self, key):
-        return self._bucketers[key]
+    def add_bucket_interval(self, start: float, end: float, bucketer: Bucketer):
+        assert start <= end and 0 <= start and end <= 1, "Intervals must be 0 <= start <= end <= 1."
+        # Make sure that the range is non-overlapping with the existing intervals
+        self._intervals.sort(key=lambda x: x[0]) # sort by start
+        lower_bound_idx = bisect.bisect_left(self._intervals, start, key = lambda x: x[0])
+        if lower_bound_idx > 0:
+            prev_start, prev_end, _ = self._intervals[lower_bound_idx - 1]
+            if start <= prev_end: # Check for left overlap
+                raise ValueError(
+                    f"Intervals must not overlap. "
+                    f"Input [{start}, {end}) overlaps with [{prev_start}, {prev_end})"
+                )
+        if lower_bound_idx < len(self._intervals):
+            if self._intervals[lower_bound_idx][0] <= end:
+                raise ValueError(f"Intervals must not overlap. Input [{start}, {end}] overlap with {self._intervals[lower_bound_idx]}")
+        self._intervals.insert(lower_bound_idx, (start, end, bucketer))
 
-    def __setitem__(self, key, value: Bucketer):
-        self._bucketers[key] = value
-    
-    def assign_bucket(self, X: np.ndarray, t, return_v: bool = True) -> np.ndarray:
-        assert t in self._bucketers.keys(), "No buckets available for given timestep. Initialize the bucket first."
-        return self._bucketers[t].assign_bucket(X, return_v)
+    def assign_bucket(self, X: np.ndarray, t: float, return_v=True) -> np.ndarray:
+        for start, end, bucketer in self._intervals:
+            if start <= t < end:
+                return bucketer.assign_bucket(X, return_v)
+        raise KeyError(f"No bucket interval contains t={t}")
 
-def process_data(dir, features) -> BucketContainer:
+
+def bucket_data_by_interval(
+    dir: str,
+    features: List[str],
+    num_bucketers: int,
+    BucketerCls: type,
+    timestep_col="timestep",
+    *args,
+    **kwargs
+):
     """
-
-    
+    Load CSVs, split data into intervals, and create Bucketers per interval.
     """
-    # Takes a directory as a parameter, loads CSVs and creates np array for each timestep. Then for each array, create a Bucketer object. Then we are done for this. We just have to add an estimator function in C_estimator.py and do matmul.
+    csv_files = [
+        os.path.join(root, f)
+        for root, _, files in os.walk(dir)
+        for f in files if f.lower().endswith(".csv")
+    ]
+
+    if not csv_files:
+        return BucketContainer()
+
+    dfs = []
+    for fpath in csv_files:
+        df = pd.read_csv(fpath)
+        cols_needed = [timestep_col] + features
+        missing = [c for c in cols_needed if c not in df.columns]
+        if missing:
+            raise KeyError(f"Missing columns {missing} in {fpath}")
+        dfs.append(df[cols_needed])
+
+    all_df = pd.concat(dfs, ignore_index=True)
+    container = IntervalBucketContainer()
+
+    # Create intervals (e.g., equal-length buckets in [0,1])
+    interval_edges = np.linspace(0, 1, num_bucketers + 1)
+    for i in range(num_bucketers):
+        start, end = interval_edges[i], interval_edges[i + 1]
+        # Filter rows belonging to this interval
+        mask = (all_df[timestep_col] >= start) & (all_df[timestep_col] <= end)
+        interval_data = all_df.loc[mask, features].to_numpy()
+        if interval_data.size == 0:
+            continue  # skip empty intervals
+        # Create Bucketer and add interval
+        bucketer = BucketerCls(features, interval_data, start, end, *args, **kwargs)
+        container.add_bucket_interval(start, end, bucketer)
+
+    return container
