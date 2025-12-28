@@ -11,11 +11,11 @@ def C_cons(pA, pB):
     C_hat = (X_centered.T @ X_centered) / n_games    # shape (n_timesteps, n_timesteps)
     return C_hat
 
-def estimate_C(entries: Entries, p_est: List = None):
+def estimate_C(entries: Entries, p_est: np.ndarray = None):
     """
     Outputs the covariance matrix, built from the entries of 'entries', using the given method to estimate ground truth probabilities. 
     Args:
-    - p_est: ground truth probabilities if we use a different estimate from 1/4
+    - p_est: ground truth probabilities if we use a different estimate from 1/4. Shape: (n_games, n_timesteps)
     Output:
     Covariance matrix of shape (n_timesteps, n_timesteps), where n_timesteps is the 2nd axis's dimension in entries.
     """
@@ -23,9 +23,21 @@ def estimate_C(entries: Entries, p_est: List = None):
     pB = entries.p_B
     if p_est is None:
         return C_cons(pA, pB)
-    raise NotImplementedError("Currently only supporting a conservative estimate of C.")
+    return C_p_est(pA, pB, p_est)
 
+def C_p_est(pA, pB, p_est):
+    n_games, n_timesteps = pA.shape
+    C = np.zeros(n_timesteps, n_timesteps)
+    X = pA - pB # (n_games, n_timesteps)
+    delta_bar = np.mean(X, axis = 0) # (n_timesteps,)
+    X_centered = X - delta_bar[None, :] # Broadcast to (1, n_timesteps) -> (n_games, n_timesteps)
+    for m in range(n_timesteps):
+        Y = np.sqrt(p_est[:, m])[:, None] * X_centered # (n_games, n_timesteps)
+        G = Y.T @ Y # (T, T)
+        # Fill blocks where max(s,t) = m
+        C[m, :m+1] += G[m, :m+1]
+        C[:m+1, m] += G[:m+1, m]
 
-def estimate_buckets():
-    pass
-    
+    C *= (4 / n_games)
+    return C
+   
