@@ -30,9 +30,9 @@ class Bucketer(ABC):
         """
         Call the score method, then keep the bucket with max score
         Args:
-        X: 2D input array
+        X: 2D input array (n_entries, n_features)
         return_v: should return estimator, otherwise return bucket name
-        Return: 1D output array, where each entry at idx i is the best fit bucket for the input at idx i.
+        Return: 1D output array (n_entries,), where each entry at idx i is the best fit bucket for the input at idx i.
         """
         scores = self.score(X)
         best_bucket_indices = np.argmax(scores, axis=1)
@@ -79,8 +79,8 @@ class BucketContainer:
         raise KeyError(f"No bucket interval contains t={t}")
 
 
-def bucket_data_by_interval(
-    dir: str,
+def create_buckets(
+    df_lst: List[pd.DataFrame],
     features: List[str],
     num_bucketers: int,
     BucketerCls: type,
@@ -102,12 +102,11 @@ def bucket_data_by_interval(
         return BucketContainer()
 
     dfs = []
-    for fpath in csv_files:
-        df = pd.read_csv(fpath)
+    for df in df_lst:
         cols_needed = [timestep_col] + features + [label_col]
         missing = [c for c in cols_needed if c not in df.columns]
         if missing:
-            raise KeyError(f"Missing columns {missing} in {fpath}")
+            raise KeyError(f"Missing columns {missing} in {df.head()}")
         dfs.append(df[cols_needed])
 
     all_df = pd.concat(dfs, ignore_index=True)
