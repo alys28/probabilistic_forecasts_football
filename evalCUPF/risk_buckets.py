@@ -17,12 +17,11 @@ class Bucketer(ABC):
         self.start = start
         self.end = end
         self.features = features
-        self.labels = labels
         self.v = {} # estimator for each bucket
-        self._preprocess_strategy(data)
+        self._preprocess_strategy(data, labels)
 
     @abstractmethod
-    def _preprocess_strategy(self, data):
+    def _preprocess_strategy(self, data, labels):
         """
         Strategy to organize given data into bucket groups.
         """

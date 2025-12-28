@@ -10,7 +10,6 @@ def generate_GP(mean_t, cov_matrix: np.ndarray, time_grid: np.ndarray):
     Args:
     mean_t: function of t
     cov_matrix: square matrix
-
     """
     mean_vec = np.array([mean_t(t) for t in time_grid])
     rng = np.random.default_rng()

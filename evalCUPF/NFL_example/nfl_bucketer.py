@@ -9,11 +9,12 @@ class NFLBucketer(Bucketer):
         """
         n_buckets: number of buckets
         """
+        assert len(data) > n_buckets, "Need more data for the given bucket. Got {} data and {} buckets".format(len(data), n_buckets)
         self.n_buckets = n_buckets
         self.random_state = random_state
         super().__init__(features, data, labels, start, end)
     
-    def _preprocess_strategy(self, data):
+    def _preprocess_strategy(self, data, labels):
         """
         Use K-means to define buckets (clusters) in the feature space.
         Features are scaled and cosine similarity will be used for scoring.
@@ -35,8 +36,15 @@ class NFLBucketer(Bucketer):
         self.buckets = {f"bucket_{i}": self.kmeans.cluster_centers_[i] for i in range(self.n_buckets)}
         # Get the unbiased estimate of p(1-p), as described in https://arxiv.org/pdf/1202.5140
         for j in range(self.n_buckets):
-            n_j_t = np.sum(cluster_labels == j)
-            self.v = {f"bucket_{i}": np.sum(cluster_labels == i) for i in range(self.n_buckets)}
+            mask = cluster_labels == j
+            n_j_t = np.sum(mask)
+            # calculate the mean:
+            if n_j_t > 0:
+                # Average label for bucket j
+                y_mean_t = np.mean(labels[mask])
+            else:
+                y_mean_t = 0.0  # or np.nan, depending on your use case
+            self.v = {f"bucket_{i}": n_j_t / (n_j_t - 1) * y_mean_t * (1 - y_mean_t) for i in range(self.n_buckets)}
 
     def score(self, X: np.ndarray) -> np.ndarray:
         """
