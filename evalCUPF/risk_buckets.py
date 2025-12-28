@@ -9,14 +9,15 @@ class Bucketer(ABC):
     """
     Abstract class for a risk bucket strategy. One Bucketer object must be created per timestep.
     """
-    def __init__(self, features: List[str], data: np.ndarray | Any, labels, start, end):
+    def __init__(self, features: List[str], data: np.ndarray | Any, labels: np.ndarray, start, end):
         """
-        Note: the order of the features is assumed to be the same as the data's order feature-wise.
+        Note: the order of the features is assumed to be the same as the data's order feature-wise. Order of labels and data is also assumed to be the same.
         """
         self.buckets = {}
         self.start = start
         self.end = end
         self.features = features
+        self.labels = labels
         self.v = {} # estimator for each bucket
         self._preprocess_strategy(data)
 
@@ -84,6 +85,7 @@ def bucket_data_by_interval(
     features: List[str],
     num_bucketers: int,
     BucketerCls: type,
+    label_col: str,
     timestep_col="timestep",
     *args,
     **kwargs
@@ -103,7 +105,7 @@ def bucket_data_by_interval(
     dfs = []
     for fpath in csv_files:
         df = pd.read_csv(fpath)
-        cols_needed = [timestep_col] + features
+        cols_needed = [timestep_col] + features + [label_col]
         missing = [c for c in cols_needed if c not in df.columns]
         if missing:
             raise KeyError(f"Missing columns {missing} in {fpath}")
@@ -119,11 +121,23 @@ def bucket_data_by_interval(
         end = interval_edges[i + 1] - (EPS if i < num_bucketers - 1 else 0)
         # Filter rows belonging to this interval
         mask = (all_df[timestep_col] >= start) & (all_df[timestep_col] <= end)
-        interval_data = all_df.loc[mask, features].to_numpy()
-        if interval_data.size == 0:
+        interval_features = all_df.loc[mask, features].to_numpy()
+        interval_labels = all_df.loc[mask, label_col].to_numpy()
+
+        if interval_features.size == 0:
             continue  # skip empty intervals
-        # Create Bucketer and add interval
-        bucketer = BucketerCls(features, interval_data, start, end, *args, **kwargs)
+
+        # Create Bucketer WITH labels
+        bucketer = BucketerCls(
+            features,
+            interval_features,
+            interval_labels,
+            start,
+            end,
+            *args,
+            **kwargs
+        )
+
         container.add_bucket_interval(start, end, bucketer)
 
     return container

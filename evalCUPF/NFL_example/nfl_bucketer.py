@@ -5,13 +5,13 @@ from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 
 class NFLBucketer(Bucketer):
-    def __init__(self, features, data, start, end, n_buckets=3, random_state=42):
+    def __init__(self, features, data, labels, start, end, n_buckets=3, random_state=42):
         """
         n_buckets: number of buckets
         """
         self.n_buckets = n_buckets
         self.random_state = random_state
-        super().__init__(features, data, start, end)
+        super().__init__(features, data, labels, start, end)
     
     def _preprocess_strategy(self, data):
         """
@@ -52,3 +52,4 @@ class NFLBucketer(Bucketer):
         # Cosine similarity between each row and each centroid
         scores = cosine_similarity(X_scaled, centroids)
         return scores
+
