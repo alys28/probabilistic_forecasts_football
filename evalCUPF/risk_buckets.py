@@ -42,6 +42,15 @@ class Bucketer(ABC):
             return np.array([self.v[bucket] for bucket in best_buckets])
         return best_buckets
     
+    def add_to_v(self, bucket_name: str, y_mean_t, n_j_t):
+        """
+        Get the unbiased estimate of p(1-p), as described in https://arxiv.org/pdf/1202.5140
+        """
+        if n_j_t <= 1:
+            self.v[bucket_name] = 0.0
+        else:
+            self.v[bucket_name] = n_j_t / (n_j_t - 1) * y_mean_t * (1 - y_mean_t)
+
     @abstractmethod
     def score(self, X: np.ndarray) -> np.ndarray:
         """

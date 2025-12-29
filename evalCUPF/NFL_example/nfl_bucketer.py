@@ -34,15 +34,11 @@ class NFLBucketer(Bucketer):
 
         # Store buckets: each bucket is represented by its cluster centroid
         self.buckets = {f"bucket_{i}": self.kmeans.cluster_centers_[i] for i in range(self.n_buckets)}
-        # Get the unbiased estimate of p(1-p), as described in https://arxiv.org/pdf/1202.5140
         for j in range(self.n_buckets):
             mask = cluster_labels == j
             n_j_t = np.sum(mask)
-            if n_j_t > 1:
-                y_mean_t = np.mean(labels[mask])
-                self.v[f"bucket_{j}"] = n_j_t / (n_j_t - 1) * y_mean_t * (1 - y_mean_t)
-            else:
-                self.v[f"bucket_{j}"] = 0.0  # or np.nan if you prefer
+            y_mean_t = np.mean(labels[mask])
+            self.add_to_v(f"bucket_{j}", y_mean_t, n_j_t)
 
     def score(self, X: np.ndarray) -> np.ndarray:
         """
