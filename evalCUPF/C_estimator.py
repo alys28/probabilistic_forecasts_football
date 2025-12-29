@@ -35,8 +35,11 @@ def C_p_est(pA, pB, p_est):
         Y = np.sqrt(p_est[:, m])[:, None] * X_centered # (n_games, n_timesteps)
         G = Y.T @ Y # (T, T)
         # Fill blocks where max(s,t) = m
-        C[m, :m+1] += G[m, :m+1]
-        C[:m+1, m] += G[:m+1, m]
+        C[m, :m] += G[m, :m]
+        C[:m, m] += G[:m, m]
+
+        # diagonal (once!)
+        C[m, m] += G[m, m]
 
     C *= (4 / n_games)
     return C
