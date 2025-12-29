@@ -53,7 +53,7 @@ class Bucketer(ABC):
     
 class BucketContainer:
     def __init__(self):
-        self.intervals = [] # (start, end, bucket)
+        self._intervals = [] # (start, end, bucket)
 
     def add_bucket_interval(self, start: float, end: float, bucketer: Bucketer):
         assert start <= end and 0 <= start and end <= 1, "Intervals must be 0 <= start <= end <= 1."
@@ -74,7 +74,7 @@ class BucketContainer:
 
     def assign_bucket(self, X: np.ndarray, t: float, return_v=True) -> np.ndarray:
         for start, end, bucketer in self._intervals:
-            if start <= t < end:
+            if start <= t <= end:
                 return bucketer.assign_bucket(X, return_v)
         raise KeyError(f"No bucket interval contains t={t}")
 
@@ -92,15 +92,7 @@ def create_buckets(
     """
     Load CSVs, split data into intervals, and create Bucketers per interval.
     """
-    csv_files = [
-        os.path.join(root, f)
-        for root, _, files in os.walk(dir)
-        for f in files if f.lower().endswith(".csv")
-    ]
-
-    if not csv_files:
-        return BucketContainer()
-
+    assert num_bucketers <= 10000, "Max num_bucketers is 10000."
     dfs = []
     for df in df_lst:
         cols_needed = [timestep_col] + features + [label_col]
@@ -115,13 +107,12 @@ def create_buckets(
     # Create intervals (e.g., equal-length buckets in [0,1])
     interval_edges = np.linspace(0, 1, num_bucketers + 1)
     for i in range(num_bucketers):
-        start = interval_edges[i]
-        end = interval_edges[i + 1] - (EPS if i < num_bucketers - 1 else 0)
+        start = round(interval_edges[i], 5)
+        end = round(interval_edges[i + 1], 5) - (EPS if i < num_bucketers - 1 else 0)
         # Filter rows belonging to this interval
         mask = (all_df[timestep_col] >= start) & (all_df[timestep_col] <= end)
         interval_features = all_df.loc[mask, features].to_numpy()
-        interval_labels = all_df.loc[mask, label_col].to_numpy()
-
+        interval_labels = all_df.loc[mask, [label_col]].to_numpy()
         if interval_features.size == 0:
             continue  # skip empty intervals
 
@@ -135,7 +126,8 @@ def create_buckets(
             *args,
             **kwargs
         )
-
+        print("V: ", bucketer.v)
+        print(f"Created bucket for timestep range {start}, {end}")
         container.add_bucket_interval(start, end, bucketer)
 
     return container

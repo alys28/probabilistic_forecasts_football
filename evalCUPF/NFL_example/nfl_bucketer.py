@@ -1,4 +1,4 @@
-from evalCUPF.risk_buckets import Bucketer, bucket_data
+from evalCUPF.risk_buckets import Bucketer
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
 from sklearn.metrics.pairwise import cosine_similarity
@@ -12,7 +12,7 @@ class NFLBucketer(Bucketer):
         assert len(data) > n_buckets, "Need more data for the given bucket. Got {} data and {} buckets".format(len(data), n_buckets)
         self.n_buckets = n_buckets
         self.random_state = random_state
-        super().__init__(features, data, labels, start, end)
+        super().__init__(features, data, labels = labels, start = start, end = end)
     
     def _preprocess_strategy(self, data, labels):
         """
@@ -29,7 +29,7 @@ class NFLBucketer(Bucketer):
         X_scaled = self.scaler.fit_transform(data)
 
         # K-means clustering
-        self.kmeans = KMeans(n_buckets=self.n_buckets, random_state=self.random_state)
+        self.kmeans = KMeans(n_clusters=self.n_buckets, random_state=self.random_state)
         cluster_labels = self.kmeans.fit_predict(X_scaled)
 
         # Store buckets: each bucket is represented by its cluster centroid
@@ -38,13 +38,11 @@ class NFLBucketer(Bucketer):
         for j in range(self.n_buckets):
             mask = cluster_labels == j
             n_j_t = np.sum(mask)
-            # calculate the mean:
-            if n_j_t > 0:
-                # Average label for bucket j
+            if n_j_t > 1:
                 y_mean_t = np.mean(labels[mask])
+                self.v[f"bucket_{j}"] = n_j_t / (n_j_t - 1) * y_mean_t * (1 - y_mean_t)
             else:
-                y_mean_t = 0.0  # or np.nan, depending on your use case
-            self.v = {f"bucket_{i}": n_j_t / (n_j_t - 1) * y_mean_t * (1 - y_mean_t) for i in range(self.n_buckets)}
+                self.v[f"bucket_{j}"] = 0.0  # or np.nan if you prefer
 
     def score(self, X: np.ndarray) -> np.ndarray:
         """

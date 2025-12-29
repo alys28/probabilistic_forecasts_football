@@ -74,7 +74,7 @@ def calculate_p_val(entries: Entries, p_est = None, B: int = B, chunk_size: int 
     and per-sample Python loops (much faster for large B).
     """
     covariance_matrix = estimate_C(entries, p_est)
-    n = entries.n
+    n = len(entries)
 
     # Compute T_n
     delta_n = calculate_delta(entries, brier_loss)

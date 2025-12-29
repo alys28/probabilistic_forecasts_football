@@ -27,7 +27,7 @@ def estimate_C(entries: Entries, p_est: np.ndarray = None):
 
 def C_p_est(pA, pB, p_est):
     n_games, n_timesteps = pA.shape
-    C = np.zeros(n_timesteps, n_timesteps)
+    C = np.zeros((n_timesteps, n_timesteps))
     X = pA - pB # (n_games, n_timesteps)
     delta_bar = np.mean(X, axis = 0) # (n_timesteps,)
     X_centered = X - delta_bar[None, :] # Broadcast to (1, n_timesteps) -> (n_games, n_timesteps)

@@ -8,10 +8,10 @@ from evalCUPF.C_estimator import estimate_C
 from evalCUPF.calculate_p_val import calculate_p_val
 from evalCUPF.plot_results import plot_pcb, calc_L_s2
 from evalCUPF.entries import Entries
-from nfl_bucketer import NFLBucketer
+from .nfl_bucketer import NFLBucketer
 
 
-def run_test(dir: str, train_years: List[int], test_years: List[int], forecast_file: str, features: List[str], range_size = 0.1, num_buckets = 3, B = 10000):
+def run_test(dir: str, train_years: List[int], test_years: List[int], forecast_file: str, features: List[str], num_bucketers = 10, num_buckets = 3, B = 10000):
     # Load training dataframes
     train_dfs = []
     for year in train_years:
@@ -25,8 +25,12 @@ def run_test(dir: str, train_years: List[int], test_years: List[int], forecast_f
             if filename.endswith(".csv"):
                 file_path = os.path.join(year_dir, filename)
                 df = pd.read_csv(file_path)
-                train_dfs.append(df)
-    buckets = create_buckets(train_dfs, features, num_buckets, NFLBucketer, "home_win")
+                # Extract the value for 'home_win' from the first row
+                home_win_value = df.iloc[0]['home_win']
+                # Set all rows to have the same value for 'home_win'
+                df['home_win'] = home_win_value
+                train_dfs.append(df.iloc[1:])
+    buckets = create_buckets(train_dfs, features, num_bucketers, NFLBucketer, label_col = "home_win", n_buckets=num_buckets)
     print(f"Loaded {len(train_dfs)} dataframes from train directories.")
     entries = Entries()
     forecast_data = pd.read_csv(forecast_file)
@@ -34,11 +38,12 @@ def run_test(dir: str, train_years: List[int], test_years: List[int], forecast_f
     # Bucket the test data -> construct p_est
     n_timesteps = 201
     timestep_size = 0.005
-    temp = np.zeros(len(entries), n_timesteps, len(features))
-    p_est = np.zeros(n_timesteps, len(entries)) # 0.005 timestep
+    temp = np.zeros((len(entries), n_timesteps, len(features)))
+    p_est = np.zeros((n_timesteps, len(entries))) # 0.005 timestep
+    print("Loading test files...")
     for i in range(len(entries)):
         id = entries.get_id(i)
-        file_name = "{}.csv".format(id)
+        file_name = "game_{}.csv".format(id)
         for year in test_years:
             year_dir = Path(dir) / str(year)
             if not year_dir.exists():
@@ -48,7 +53,6 @@ def run_test(dir: str, train_years: List[int], test_years: List[int], forecast_f
             if file_path.exists(): # Found the file, so load
                 # Load CSV
                 df = pd.read_csv(file_path)
-
                 # Keep only relevant features + timestep column
                 if 'timestep' not in df.columns:
                     raise ValueError(f"'timestep' column not found in {file_path}")
@@ -56,25 +60,35 @@ def run_test(dir: str, train_years: List[int], test_years: List[int], forecast_f
                 if missing_features:
                     raise ValueError(f"Missing features {missing_features} in {file_path}")
                 df_subset = df[['timestep'] + features].iloc[1:] # skip first row
+                df_subset = df_subset[df_subset['timestep'].duplicated(keep='last') == False]
                 # Place values into temp using timestep as index
                 for _, row in df_subset.iterrows():
                     t_idx = int(row['timestep'] / timestep_size)  # Convert timestep to index
                     if 0 <= t_idx < n_timesteps:
-                        temp[i, t_idx, :] = row[features].values
+                        temp[i, t_idx] = row[features].values
                 break  # stop searching other years once found
         
         # For each timestep in temp, figure out the bucket assignment for each entry
         for i in range(n_timesteps):
+            # print(f"Assigning buckets for timestep {round(timestep_size * i, 3)}")
             entries_at_t = temp[:, i, :]
-            p_est[i] = buckets.assign_bucket(entries_at_t, timestep_size * i, return_v=True)
-
+            p_est[i] = buckets.assign_bucket(entries_at_t, round(timestep_size * i, 3), return_v=True)
+    print("Loaded test files, calculating Covariance Matrix...")
     p_est = p_est.T
-
     # Run the test
     p_val = calculate_p_val(entries, p_est, B)
-    C = estimate_C(entries, p_est)
-
-    df_stats = calc_L_s2(forecast_data, pA="phat_A", pB="phat_B", Y="Y", grid="timestep")
-    plot_pcb(df_stats, grid="timestep", L="L", var="sigma2", phat_A="A", phat_B="B")
+    C1 = estimate_C(entries, p_est)
+    C2 = estimate_C(entries, None)
+    df_stats = calc_L_s2(forecast_data, C1, C2, pA="phat_A", pB="phat_B", Y="Y", grid="game_completed")
+    plot_pcb(df_stats, grid="game_completed", L="L", var_C1="sigma2_C1", var_C2="sigma2_C2", phat_A="A", phat_B="B")
     
     return p_val
+
+if __name__ == "__main__":
+    forecast_file = "NFL/test_7/ensemble_model_testing_2_combined_data.csv"
+    dir = "NFL/dataset_interpolated_fixed"
+    train_years = [2022, 2023]
+    test_years = [2024]
+    features = ["homeScore", "awayScore", "end.yardsToEndzone", "end.down", "end.distance"]
+    p_val = run_test(dir, train_years, test_years, forecast_file, features)
+    print(p_val)
