@@ -9,9 +9,10 @@ class Entries:
     """
     def __init__(self, timestep_size = 0.005):
         n_exact = 1 / timestep_size
-        assert np.isclose(n_exact, round(n_exact)), "Choose a timestep_size that is evenly divides the range [0,1]"
+        assert np.isclose(n_exact, round(n_exact)), "Choose a timestep_size that evenly divides the range [0,1]"
         self.timesteps = list(np.arange(0, 1 + timestep_size, timestep_size))
         self.timestep_size = timestep_size
+        self.ids = []
         self.p_B = None
         self.p_A = None
         self.Y = None
@@ -30,11 +31,12 @@ class Entries:
             id_field (str, optional): Column name for the ID field. Defaults to "id".
         """
         # Separate the dataframe into smaller frames, based on when the IDs change
-        games = [group.reset_index(drop=True) for _, group in data.groupby(id_field)]
+        self.ids = pd.unique(data[id_field])
+        games = [data[data[id_field] == id_val].reset_index(drop=True) for id_val in self.ids]
         self.p_B = np.zeros((len(games), len(self.timesteps)))
         self.p_A = np.zeros((len(games), len(self.timesteps)))
         self.Y = np.zeros((len(games), len(self.timesteps)))
-        self.n = len(games)
+        self._n = len(games)
 
         for i in range(len(games)):
             df = games[i]
@@ -47,7 +49,12 @@ class Entries:
             self.p_B[i, :] = p_B_col
             self.Y[i, :] = Y_col
 
+    def get_id(self, i: int):
+        return self.ids[i]
     
+    def __len__(self):
+        return self._n
+
     def __getitem__(self, key: Union[tuple[int, int], int]) -> Union[tuple[np.ndarray, np.ndarray], tuple[float, float]]:
         """
         Single number as key[i]: get the forecasts of game with idx i

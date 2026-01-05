@@ -197,7 +197,7 @@ def getHomeWinProbabilities(game_id: str) -> List[Dict[str, Any]]:
 
 if __name__ == "__main__":
     # years = [2016, 2017, 2018, 2019, 2022, 2023, 2024]
-    years = [2023, 2024]
+    years = [2022, 2023, 2024]
     for year in years:
         matches = getIDs(year)
         print(f"Found {len(matches)} unique matches for year {year}")

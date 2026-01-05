@@ -9,19 +9,19 @@ class Bucketer(ABC):
     """
     Abstract class for a risk bucket strategy. One Bucketer object must be created per timestep.
     """
-    def __init__(self, features: List[str], data: np.ndarray | Any, labels, start, end):
+    def __init__(self, features: List[str], data: np.ndarray | Any, labels: np.ndarray, start, end):
         """
-        Note: the order of the features is assumed to be the same as the data's order feature-wise.
+        Note: the order of the features is assumed to be the same as the data's order feature-wise. Order of labels and data is also assumed to be the same.
         """
         self.buckets = {}
         self.start = start
         self.end = end
         self.features = features
         self.v = {} # estimator for each bucket
-        self._preprocess_strategy(data)
+        self._preprocess_strategy(data, labels)
 
     @abstractmethod
-    def _preprocess_strategy(self, data):
+    def _preprocess_strategy(self, data, labels):
         """
         Strategy to organize given data into bucket groups.
         """
@@ -30,9 +30,9 @@ class Bucketer(ABC):
         """
         Call the score method, then keep the bucket with max score
         Args:
-        X: 2D input array
+        X: 2D input array (n_entries, n_features)
         return_v: should return estimator, otherwise return bucket name
-        Return: 1D output array, where each entry at idx i is the best fit bucket for the input at idx i.
+        Return: 1D output array (n_entries,), where each entry at idx i is the best fit bucket for the input at idx i.
         """
         scores = self.score(X)
         best_bucket_indices = np.argmax(scores, axis=1)
@@ -42,6 +42,15 @@ class Bucketer(ABC):
             return np.array([self.v[bucket] for bucket in best_buckets])
         return best_buckets
     
+    def add_to_v(self, bucket_name: str, y_mean_t, n_j_t):
+        """
+        Get the unbiased estimate of p(1-p), as described in https://arxiv.org/pdf/1202.5140
+        """
+        if n_j_t <= 1:
+            self.v[bucket_name] = 0.0
+        else:
+            self.v[bucket_name] = n_j_t / (n_j_t - 1) * y_mean_t * (1 - y_mean_t)
+
     @abstractmethod
     def score(self, X: np.ndarray) -> np.ndarray:
         """
@@ -53,7 +62,7 @@ class Bucketer(ABC):
     
 class BucketContainer:
     def __init__(self):
-        self.intervals = [] # (start, end, bucket)
+        self._intervals = [] # (start, end, bucket)
 
     def add_bucket_interval(self, start: float, end: float, bucketer: Bucketer):
         assert start <= end and 0 <= start and end <= 1, "Intervals must be 0 <= start <= end <= 1."
@@ -74,16 +83,17 @@ class BucketContainer:
 
     def assign_bucket(self, X: np.ndarray, t: float, return_v=True) -> np.ndarray:
         for start, end, bucketer in self._intervals:
-            if start <= t < end:
+            if start <= t <= end:
                 return bucketer.assign_bucket(X, return_v)
         raise KeyError(f"No bucket interval contains t={t}")
 
 
-def bucket_data_by_interval(
-    dir: str,
+def create_buckets(
+    df_lst: List[pd.DataFrame],
     features: List[str],
     num_bucketers: int,
     BucketerCls: type,
+    label_col: str,
     timestep_col="timestep",
     *args,
     **kwargs
@@ -91,22 +101,13 @@ def bucket_data_by_interval(
     """
     Load CSVs, split data into intervals, and create Bucketers per interval.
     """
-    csv_files = [
-        os.path.join(root, f)
-        for root, _, files in os.walk(dir)
-        for f in files if f.lower().endswith(".csv")
-    ]
-
-    if not csv_files:
-        return BucketContainer()
-
+    assert num_bucketers <= 10000, "Max num_bucketers is 10000."
     dfs = []
-    for fpath in csv_files:
-        df = pd.read_csv(fpath)
-        cols_needed = [timestep_col] + features
+    for df in df_lst:
+        cols_needed = [timestep_col] + features + [label_col]
         missing = [c for c in cols_needed if c not in df.columns]
         if missing:
-            raise KeyError(f"Missing columns {missing} in {fpath}")
+            raise KeyError(f"Missing columns {missing} in {df.head()}")
         dfs.append(df[cols_needed])
 
     all_df = pd.concat(dfs, ignore_index=True)
@@ -115,15 +116,27 @@ def bucket_data_by_interval(
     # Create intervals (e.g., equal-length buckets in [0,1])
     interval_edges = np.linspace(0, 1, num_bucketers + 1)
     for i in range(num_bucketers):
-        start = interval_edges[i]
-        end = interval_edges[i + 1] - (EPS if i < num_bucketers - 1 else 0)
+        start = round(interval_edges[i], 5)
+        end = round(interval_edges[i + 1], 5) - (EPS if i < num_bucketers - 1 else 0)
         # Filter rows belonging to this interval
         mask = (all_df[timestep_col] >= start) & (all_df[timestep_col] <= end)
-        interval_data = all_df.loc[mask, features].to_numpy()
-        if interval_data.size == 0:
+        interval_features = all_df.loc[mask, features].to_numpy()
+        interval_labels = all_df.loc[mask, [label_col]].to_numpy()
+        if interval_features.size == 0:
             continue  # skip empty intervals
-        # Create Bucketer and add interval
-        bucketer = BucketerCls(features, interval_data, start, end, *args, **kwargs)
+
+        # Create Bucketer WITH labels
+        bucketer = BucketerCls(
+            features,
+            interval_features,
+            interval_labels,
+            start,
+            end,
+            *args,
+            **kwargs
+        )
+        print("V: ", bucketer.v)
+        print(f"Created bucket for timestep range {start}, {end}")
         container.add_bucket_interval(start, end, bucketer)
 
     return container

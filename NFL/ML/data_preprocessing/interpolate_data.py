@@ -14,7 +14,7 @@ def load_game(data_dir, data_file):
     return data
 
 # data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../.."))
-data_dir = "./2024_train"
+data_dir = "data_with_probabilities/2022"
 # load_game(data_dir, data_file)
 
 def interpolate_data(data, steps=0.005):

@@ -46,7 +46,7 @@ def process_csv(file_path, phat_A, phat_b, interpolate = False, steps = 0.01):
         interpolated_df.to_csv(interpolated_file_path, index=False)
         print(f"Processed and saved: {interpolated_file_path}")
     else:
-        df = df[df['timestep'].duplicated(keep='first') == False]
+        df = df[df['timestep'].duplicated(keep='last') == False]
         interpolated_df = pd.DataFrame({
             "game_id": os.path.basename(file_path).split("_")[-1].split(".")[0],  # extract game_id from file_path: "2018_interpolated/updated_game_2018090600.csv",
             "game_completed": df["timestep"].iloc[1:],

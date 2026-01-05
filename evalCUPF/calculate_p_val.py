@@ -10,7 +10,6 @@ def generate_GP(mean_t, cov_matrix: np.ndarray, time_grid: np.ndarray):
     Args:
     mean_t: function of t
     cov_matrix: square matrix
-
     """
     mean_vec = np.array([mean_t(t) for t in time_grid])
     rng = np.random.default_rng()
@@ -67,15 +66,15 @@ def calculate_delta(entries: Entries, loss_fn = brier_loss) -> np.ndarray:
       loss_diff = loss_fn(Y, pA) - loss_fn(Y, pB)
       return loss_diff.mean(axis=0)
 
-def calculate_p_val(entries: Entries, B: int = B, chunk_size: int = 1000):
+def calculate_p_val(entries: Entries, p_est = None, B: int = B, chunk_size: int = 1000):
     """Estimate the p-value by simulating B Gaussian process suprema.
 
     This implementation precomputes a decomposition of the covariance matrix
     and generates samples in vectorized chunks to avoid repeated decompositions
     and per-sample Python loops (much faster for large B).
     """
-    covariance_matrix = estimate_C(entries, None)
-    n = entries.n
+    covariance_matrix = estimate_C(entries, p_est)
+    n = len(entries)
 
     # Compute T_n
     delta_n = calculate_delta(entries, brier_loss)
