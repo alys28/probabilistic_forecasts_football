@@ -188,12 +188,13 @@ def process_df(df, team_dict):
     Process a dataframe in place
     '''    
     # Apply all transformations
-    df = add_timeouts(df, team_dict)
-    df = add_score_difference(df)
-    df = add_possession_bool(df)
-    df = add_time_left_in_seconds_for_period(df)
-    df = add_field_position_shift(df)
-    df = add_final_score_difference(df)
+    # df = add_timeouts(df, team_dict)
+    # df = add_score_difference(df)
+    # df = add_possession_bool(df)
+    # df = add_time_left_in_seconds_for_period(df)
+    # df = add_field_position_shift(df)
+    df = add_relative_strength(df)
+    # df = add_final_score_difference(df)
     # Overwrite the original file
     return df 
 
@@ -330,7 +331,7 @@ if __name__ == "__main__":
     
     # Get all year directories
     years = [year for year in os.listdir(directory) if os.path.isdir(os.path.join(directory, year))]
-    years = ["2024"] 
+    years = ["2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023"] 
     # Process years in parallel
     with ThreadPoolExecutor(max_workers=min(len(years), 4)) as executor:
         # Submit all year processing tasks

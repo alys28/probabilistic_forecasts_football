@@ -66,7 +66,7 @@ def calc_L_s2(
     return out
 
 
-def plot_pcb(df, grid="grid", L="L", var_C1="sigma2_C1", var_C2="sigma2_C2", phat_A="phat_A", phat_B="phat_B", pad=None):
+def plot_pcb(df, grid="grid", L="L", var_C1="sigma2_C1", var_C2="sigma2_C2", phat_A="phat_A", phat_B="phat_B", save_plot = None, pad=None):
     """
     Plotter for point-wise confidence band using variances from C1 and C2
     """
@@ -110,11 +110,13 @@ def plot_pcb(df, grid="grid", L="L", var_C1="sigma2_C1", var_C2="sigma2_C2", pha
 
     # Create plot
     plt.figure(figsize=(10, 6))
+    ax = plt.gca()
+    ax.set_facecolor('#f0f0f0')  # Light grey background
     sns.lineplot(data=df, x=grid, y=L, color="black", label="Mean Loss Difference")
-    plt.fill_between(df[grid], ymin_C1, ymax_C1, color='red', alpha=0.2, label="95% CI (C1)")
-    plt.fill_between(df[grid], ymin_C2, ymax_C2, color='blue', alpha=0.2, label="95% CI (C2)")
+    plt.fill_between(df[grid], ymin_C1, ymax_C1, color='blue', alpha=0.2, label="95% CI (Risk Buckets)")
+    plt.fill_between(df[grid], ymin_C2, ymax_C2, color='black', alpha=0.2, label="95% CI (Conservative)")
     plt.axhline(0, color='black', linewidth=1.25, linestyle="--")
-
+    plt.grid(True, alpha=0.5, linestyle='--', linewidth=0.5, color='black')
     # Annotate labels
     plt.text(x_pos, y_bot - pad, f"{phat_A} favoured", ha='right', va='top', fontsize=12, color="black")
     plt.text(x_pos, y_top + pad, f"{phat_B} favoured", ha='right', va='bottom', fontsize=12, color="black")
@@ -123,4 +125,7 @@ def plot_pcb(df, grid="grid", L="L", var_C1="sigma2_C1", var_C2="sigma2_C2", pha
     plt.ylabel(L)
     plt.legend()
     plt.tight_layout()
+    if save_plot is not None:
+        plt.savefig(save_plot, dpi=300)
     plt.show()
+    

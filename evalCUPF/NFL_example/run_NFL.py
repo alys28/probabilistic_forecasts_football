@@ -9,9 +9,12 @@ from evalCUPF.calculate_p_val import calculate_p_val
 from evalCUPF.plot_results import plot_pcb, calc_L_s2
 from evalCUPF.entries import Entries
 from .nfl_bucketer import NFLBucketer
+from .nfl_heuristic_bucketer import NFLHeuristicBucketer 
+from .combine_data import combine_csv_files
 
 
-def run_test(dir: str, train_years: List[int], test_years: List[int], forecast_file: str, features: List[str], num_bucketers = 10, num_buckets = 3, B = 10000):
+
+def run_test(dir: str, train_years: List[int], test_years: List[int], forecast_file: str, features: List[str], num_bucketers = 10, num_buckets = 3, B = 10000, phat_A = "A", phat_B = "B", save_plot=None):
     # Load training dataframes
     train_dfs = []
     for year in train_years:
@@ -30,7 +33,7 @@ def run_test(dir: str, train_years: List[int], test_years: List[int], forecast_f
                 # Set all rows to have the same value for 'home_win'
                 df['home_win'] = home_win_value
                 train_dfs.append(df.iloc[1:])
-    buckets = create_buckets(train_dfs, features, num_bucketers, NFLBucketer, label_col = "home_win", n_buckets=num_buckets)
+    buckets = create_buckets(train_dfs, features, num_bucketers, NFLHeuristicBucketer, label_col = "home_win", n_buckets=num_buckets)
     print(f"Loaded {len(train_dfs)} dataframes from train directories.")
     entries = Entries()
     forecast_data = pd.read_csv(forecast_file)
@@ -80,15 +83,17 @@ def run_test(dir: str, train_years: List[int], test_years: List[int], forecast_f
     C1 = estimate_C(entries, p_est)
     C2 = estimate_C(entries, None)
     df_stats = calc_L_s2(forecast_data, C1, C2, pA="phat_A", pB="phat_B", Y="Y", grid="game_completed")
-    plot_pcb(df_stats, grid="game_completed", L="L", var_C1="sigma2_C1", var_C2="sigma2_C2", phat_A="A", phat_B="B")
+    plot_pcb(df_stats, grid="game_completed", L="L", var_C1="sigma2_C1", var_C2="sigma2_C2", phat_A=phat_A, phat_B=phat_B, save_plot = save_plot)
     
     return p_val
 
 if __name__ == "__main__":
-    forecast_file = "NFL/test_7/ensemble_model_testing_2_combined_data.csv"
-    dir = "NFL/dataset_interpolated_fixed"
-    train_years = [2022, 2023]
+    forecast_file = "NFL/test_7/LR_with_end_fix_combined_data.csv"
+    dir = "NFL/ML/dataset_interpolated_fixed"
+    combine_csv_files("LR_with_end_fix", "test_7")
+    train_years = [2021, 2022, 2023]
     test_years = [2024]
-    features = ["homeScore", "awayScore", "end.yardsToEndzone", "end.down", "end.distance"]
-    p_val = run_test(dir, train_years, test_years, forecast_file, features)
+    save_plot = "NFL/test_7/plot_ESPN_LR_with_end_fix.png"
+    features = ["score_difference", "relative_strength", "end.yardsToEndzone", "end.down", "end.distance"]
+    p_val = run_test(dir, train_years, test_years, forecast_file, features, num_bucketers=50, num_buckets=5, phat_A="ESPN", phat_B="Logistic Regression", save_plot=save_plot)
     print(p_val)
