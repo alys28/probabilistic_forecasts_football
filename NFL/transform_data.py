@@ -7,7 +7,7 @@ import os
 # - phat_b (below)
 
 # Directory containing CSV files
-directory = "test_7/ensemble_model_testing_2"  # Change this to your actual directory
+directory = "test_7/lstm_model"  # Change this to your actual directory
 
 # Function to process a CSV file
 def process_csv(file_path, phat_A, phat_b, interpolate = False, steps = 0.01):

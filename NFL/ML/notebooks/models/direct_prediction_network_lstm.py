@@ -387,7 +387,7 @@ def setup_direct_lstm_models(training_data, test_data=None, features=[], num_mod
             bidirectional=bidirectional,
             dropout_rate=0.5
         )
-        criterion = BrierLoss()
+        criterion = nn.BCELoss()
         # Simple optimizer with strong regularization
         optimizer = torch.optim.AdamW(
             lstm_network.parameters(), 

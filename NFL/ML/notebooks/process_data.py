@@ -45,18 +45,27 @@ def process_csv_file(file_path, history_length, features, label_feature, replace
                 continue
                 
             current_row_np = current_row_features.reshape(1, -1)
-            start_idx = max(1, idx - history_length)
-            actual_history_len = idx - start_idx
             
             # Check for NaN in history rows (safer method)
             if history_length > 0:
-                history_rows = df.iloc[start_idx:idx][features].to_numpy(dtype=np.float32)
+                # Get the indices based on when the sequenceNumber changes
+                history_rows = []
+                curr_seq_num = -1
+                curr_idx = idx
+                while curr_idx >= 1:
+                    if df.iloc[curr_idx]["sequenceNumber"] != curr_seq_num:
+                        history_rows.append(df.iloc[curr_idx][features].to_numpy(dtype=np.float32))
+                        curr_seq_num = df.iloc[curr_idx]["sequenceNumber"]
+                    curr_idx -= 1
+                    if len(history_rows) == history_length:
+                        break
+                history_rows = np.array(history_rows)
                 if np.isnan(history_rows).any():
                     print(f"  NaN found in file: {file_path}")
                     history_rows = np.nan_to_num(history_rows, nan=0.0)
                 
-                if actual_history_len < history_length:
-                    padding = np.zeros((history_length - actual_history_len, len(features)))
+                if len(history_rows) < history_length:
+                    padding = np.zeros((history_length - len(history_rows), len(features)))
                     history_rows = np.concatenate([padding, history_rows], axis=0)
                 
                 final_rows_for_timestep = np.concatenate([history_rows, current_row_np], axis=0)
