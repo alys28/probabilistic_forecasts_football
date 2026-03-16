@@ -7,7 +7,8 @@ import os
 # - phat_b (below)
 
 # Directory containing CSV files
-directory = "test_7/LR_with_end_fix"  # Change this to your actual directory
+directory = "test_8/xgboost_model"  # Change this to your actual directory
+phat_B = "xgboost_phat_b"  # Change this to the actual column name for phat_B in your CSV files
 
 # Function to process a CSV file
 def process_csv(file_path, phat_A, phat_b, interpolate = False, steps = 0.01):
@@ -66,5 +67,5 @@ if __name__ == "__main__":
         if filename.endswith(".csv"):
             file_path = os.path.join(directory, filename)
             print(file_path)
-            process_csv(file_path, "homeWinProbability", "LR_phat_b", False, 0.005)  # Interpolate with 0.5% steps
+            process_csv(file_path, "homeWinProbability", phat_B, False, 0.005)  # Interpolate with 0.5% steps
     print("Processing complete for all CSV files in the directory.")

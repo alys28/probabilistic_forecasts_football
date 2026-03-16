@@ -88,12 +88,12 @@ def run_test(dir: str, train_years: List[int], test_years: List[int], forecast_f
     return p_val
 
 if __name__ == "__main__":
-    forecast_file = "NFL/test_7/LR_with_end_fix_combined_data.csv"
+    forecast_file = "NFL/test_8/nfl_heuristic_model_combined_data.csv"
     dir = "NFL/ML/dataset_interpolated_fixed"
-    combine_csv_files("LR_with_end_fix", "test_7")
+    combine_csv_files("nfl_heuristic_model", "test_8")
     train_years = [2021, 2022, 2023]
-    test_years = [2024]
-    save_plot = "NFL/test_7/plot_ESPN_LR_with_end_fix.png"
+    test_years = [2024, 2025]
+    save_plot = "NFL/test_8/plot_ESPN_nfl_heuristic_model.png"
     features = ["score_difference", "relative_strength", "end.yardsToEndzone", "end.down", "end.distance"]
-    p_val = run_test(dir, train_years, test_years, forecast_file, features, num_bucketers=50, num_buckets=5, phat_A="ESPN", phat_B="Logistic Regression", save_plot=save_plot)
+    p_val = run_test(dir, train_years, test_years, forecast_file, features, num_bucketers=50, num_buckets=5, phat_A="ESPN", phat_B="nfl_heuristic_phat_b", save_plot=save_plot)
     print(p_val)

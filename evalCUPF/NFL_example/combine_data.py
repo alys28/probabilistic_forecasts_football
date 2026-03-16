@@ -25,4 +25,4 @@ def combine_csv_files(name, test_dir, base_dir="/Users/aly/Documents/University_
 
 if __name__ == "__main__":
     # Example usage; modify as needed
-    combine_csv_files("lstm_model", "test_7")
+    combine_csv_files("LR_straw_men", "test_8")
