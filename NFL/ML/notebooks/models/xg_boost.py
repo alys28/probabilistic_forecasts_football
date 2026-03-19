@@ -9,15 +9,12 @@ from optuna.pruners import MedianPruner
 from .Model import Model
 
 
-def brier_objective(preds, train_data):
-    """Custom Brier score objective function for LightGBM."""
+def bce_objective(preds, train_data):
+    """Binary cross-entropy objective for LightGBM."""
     labels = train_data.get_label()
-    # Transform raw predictions to probabilities using sigmoid
     probs = Model.sigmoid(preds)
-    # Gradient: derivative of Brier score w.r.t. raw predictions
-    grad = 2.0 * (probs - labels) * probs * (1.0 - probs)
-    # Hessian: second derivative of Brier score w.r.t. raw predictions
-    hess = 2.0 * probs * (1.0 - probs) * (1.0 - 2.0 * probs * (probs - labels))
+    grad = probs - labels
+    hess = probs * (1.0 - probs)
     return grad, hess
 
 def brier_eval(preds, train_data):
@@ -35,7 +32,7 @@ class LightGBM(Model):
         super().__init__(use_calibration=use_calibration, optimize_hyperparams=optimize_hyperparams, numeric_features=numeric_features, other_features=other_features, all_features=all_features)
         self.params = {
             'boosting_type': 'gbdt',
-            'objective': brier_objective,
+            'objective': bce_objective,
             'metric': 'None',
             'num_leaves': 10,
             'max_depth': 4,
@@ -80,7 +77,7 @@ class LightGBM(Model):
     def _fixed_params(self):
         return {
             'boosting_type': 'gbdt',
-            'objective': brier_objective,
+            'objective': bce_objective,
             'metric': 'None',
             'verbose': -1,
             'random_state': 42,
@@ -122,7 +119,7 @@ class LightGBM(Model):
         
         # Perform Bayesian optimization if requested
         if self.optimize_hyperparams:
-            best = self.optimize_hyperparameters(X_train_proc, y_train, X_val_proc, y_val)
+            best = self.optimize_hyperparameters(X_train_proc, y_train, X_val_proc, y_val, n_trials=self.n_trials)
             self.params.update(best)
         
         # Create datasets
@@ -151,7 +148,7 @@ class LightGBM(Model):
             uncalibrated_probs_cal = self.sigmoid(raw_preds_cal)
             self.fit_calibrator(uncalibrated_probs_cal, y_val)
         # Calculate training loss
-        y_pred = self.predict(X_train)  # Get probability predictions
+        y_pred = self.predict_proba(X_train)[:, 1]
         train_loss = self.brier_loss(y_train, y_pred)
         train_accuracy = self.score(X_train, y_train)
 
