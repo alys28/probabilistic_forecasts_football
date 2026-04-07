@@ -1,7 +1,7 @@
 import pandas as pd
 from pathlib import Path
 
-root = Path("/Users/aly/Documents/University_of_Waterloo/Winter 2025/Research/code/NFL/ML/dataset_interpolated_fixed")
+root = Path("/Users/aly/Documents/University_of_Waterloo/Winter 2025/Research/code/NFL/ML/dataset_interpolated_fixed_possession_minus_1")
 
 csv_files = list(root.rglob("*.csv"))
 print(f"Found {len(csv_files)} CSV files")
@@ -11,7 +11,7 @@ for path in csv_files:
     if "home_has_possession" not in df.columns:
         print(f"  SKIP (no column): {path}")
         continue
-    df["home_has_possession"] = df["home_has_possession"].map({True: 1, False: -1, "True": 1, "False": -1})
+    df["home_has_possession"] = df["home_has_possession"].map({1: True, -1: False})
     df.to_csv(path, index=False)
 
 print("Done.")

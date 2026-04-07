@@ -238,10 +238,14 @@ def run_linear_regression(X: np.ndarray, y: np.ndarray, test_size: float = 0.2, 
 
 
 def _infer_and_save(fpath: str, model, features: list, prediction_column: str) -> bool:
-    df = pd.read_csv(fpath, skiprows=[1])
+    full_df = pd.read_csv(fpath)
+    skipped_row = full_df.iloc[[0]]       # preserve the first data row
+    df = full_df.iloc[1:].reset_index(drop=True)
     had_nan = df[features].astype(float).isna().any().any()
     df = run_inference(df, model, features, prediction_column)
-    df.to_csv(fpath, index=False)
+    # re-attach the skipped row (prediction columns will be NaN for it)
+    result = pd.concat([skipped_row, df], ignore_index=True)
+    result.to_csv(fpath, index=False)
     return had_nan
 
 
@@ -349,8 +353,8 @@ def run_pipeline(
 
 if __name__ == "__main__":
     DIRECTORY = "/Users/aly/Documents/University_of_Waterloo/Winter 2025/Research/code/NFL/ML/dataset_interpolated_fixed"
-    TRAIN_YEARS = [2016, 2017, 2018, 2019, 2020, 2021, 2022]
-    TEST_YEARS = [2023, 2024]
+    TRAIN_YEARS = [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023]
+    TEST_YEARS = [2024, 2025]
     FEATURES = ["game_completed", "relative_strength", "score_difference", "home_has_possession", "end.down", "end.distance", "end.yardsToEndzone",  "home_timeouts_left", "away_timeouts_left"]
     POSSESSION_INDEX = FEATURES.index("home_has_possession")
     SCORE_DIFFERENCE_INDEX = FEATURES.index("score_difference")
