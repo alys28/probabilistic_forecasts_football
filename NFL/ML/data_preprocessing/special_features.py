@@ -1,9 +1,11 @@
 import os
 import numpy as np
 import pandas as pd
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, r2_score
+from sklearn.metrics import accuracy_score, r2_score, classification_report
+from xgboost import XGBClassifier
 
 
 def run_inference(df: pd.DataFrame, model, features: list, column_name: str) -> pd.DataFrame:
@@ -24,9 +26,11 @@ def run_inference(df: pd.DataFrame, model, features: list, column_name: str) -> 
     -------
     pd.DataFrame with an added column `column_name` containing predictions
     """
-    X = df[features].to_numpy()
     df = df.copy()
-    df[column_name] = model.predict(X)
+    X = df[features].astype(float).fillna(0).to_numpy()
+    proba = model.predict_proba(X)
+    for i, bucket in enumerate(SCORE_BUCKET_NAMES):
+        df[f"{column_name}_{bucket}"] = proba[:, i]
     return df
 
 
@@ -61,17 +65,16 @@ def load_dataset(directory: str, features: list) -> dict:
         for fname in sorted(os.listdir(year_dir)):
             if not fname.endswith(".csv"):
                 continue
-            df = pd.read_csv(os.path.join(year_dir, fname))
+            df = pd.read_csv(os.path.join(year_dir, fname), skiprows=[1])
             missing = [f for f in features if f not in df.columns]
             if missing:
                 raise KeyError(f"{fname} (year {year_str}) is missing columns: {missing}")
-            dfs.append(df[features])
+            dfs.append(df[features].astype(float))
 
         if dfs:
             separator = np.zeros((1, len(features)))
             separated = [arr for df in dfs for arr in (df[features].to_numpy(), separator)]
             result[int(year_str)] = np.concatenate(separated[:-1], axis=0)  # drop trailing separator
-
     return result
 
 
@@ -102,6 +105,7 @@ def annotate_possessions(data: dict, possession_index: int, score_difference_ind
     """
     result = {}
     for year, arr in data.items():
+        print(f"Annotating possessions for year {year} ...")
         n_rows = arr.shape[0]
         points_scored = np.zeros(n_rows)
 
@@ -114,25 +118,35 @@ def annotate_possessions(data: dict, possession_index: int, score_difference_ind
 
             possession = arr[i, possession_index]
             drive_start = i
-
             # Advance until possession changes, a separator is hit, or end of array
             while i < n_rows and not np.all(arr[i] == 0) and arr[i, possession_index] == possession:
                 i += 1
 
             drive_end = i - 1
             delta = arr[drive_end, score_difference_index] - arr[drive_start, score_difference_index]
-            if drive_start < drive_end:
-                points_scored[drive_start:drive_end] = delta
+            points_scored[drive_start:drive_end] = delta  # drive_end (scoring play) stays 0
 
         result[year] = np.concatenate([arr, points_scored.reshape(-1, 1)], axis=1)
 
     return result
 
 
+N_SCORE_CLASSES = 3
+SCORE_BUCKET_NAMES = ["prob_0_2pts", "prob_3_6pts", "prob_7plus_pts"]
+
+
+def _bucket_labels(y: np.ndarray) -> np.ndarray:
+    """0-2 pts -> 0, 3-6 pts -> 1, 7+ pts -> 2"""
+    buckets = np.zeros(len(y), dtype=int)
+    buckets[(y >= 3) & (y < 7)] = 1
+    buckets[y >= 7] = 2
+    return buckets
+
+
 def train_possession_model(annotated_data: dict, train_years: list):
     """
-    Trains a linear regression model on the given years, using all columns
-    except the last as features and the last column as the target label.
+    Trains an XGBoost classifier on the given years. The last column of each
+    array is the drive points label, bucketed into: 0-2pts, 3-6pts, 7+pts.
 
     Parameters
     ----------
@@ -143,17 +157,32 @@ def train_possession_model(annotated_data: dict, train_years: list):
 
     Returns
     -------
-    model : fitted LinearRegression
-    metrics : dict with 'train_r2' and 'test_r2'
+    model : fitted XGBClassifier
+    metrics : dict with 'train_accuracy', 'test_accuracy', and 'report'
     """
     arrays = [annotated_data[y] for y in train_years if y in annotated_data]
     if not arrays:
         raise ValueError(f"None of the requested train_years found in data: {train_years}")
 
-    combined = np.concatenate(arrays, axis=0)
+    combined = np.concatenate(arrays, axis=0).astype(float)
+    n_nan = np.isnan(combined).sum()
+    if n_nan > 0:
+        print(f"      [train_possession_model] Replacing {n_nan} NaN value(s) with 0 before training.")
+    combined = np.nan_to_num(combined, nan=0.0)
     X = combined[:, :-1]
-    y = combined[:, -1]
-    return run_linear_regression(X, y)
+    y = _bucket_labels(combined[:, -1])
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    model = XGBClassifier(n_estimators=200, max_depth=6, learning_rate=0.1,
+                          eval_metric="mlogloss", random_state=42)
+    model.fit(X_train, y_train)
+    metrics = {
+        "train_accuracy": accuracy_score(y_train, model.predict(X_train)),
+        "test_accuracy": accuracy_score(y_test, model.predict(X_test)),
+        "report": classification_report(y_test, model.predict(X_test),
+                                        target_names=SCORE_BUCKET_NAMES, zero_division=0),
+    }
+    return model, metrics
 
 
 def run_logistic_regression(X: np.ndarray, y: np.ndarray, test_size: float = 0.05, random_state: int = 42):
@@ -208,6 +237,42 @@ def run_linear_regression(X: np.ndarray, y: np.ndarray, test_size: float = 0.2, 
     return model, metrics
 
 
+def _infer_and_save(fpath: str, model, features: list, prediction_column: str) -> bool:
+    df = pd.read_csv(fpath, skiprows=[1])
+    had_nan = df[features].astype(float).isna().any().any()
+    df = run_inference(df, model, features, prediction_column)
+    df.to_csv(fpath, index=False)
+    return had_nan
+
+
+def _run_inference_on_year(args):
+    directory, year, model, features, prediction_column = args
+    year_dir = os.path.join(directory, str(year))
+    if not os.path.isdir(year_dir):
+        return year, 0, 0
+    csv_files = sorted(f for f in os.listdir(year_dir) if f.endswith(".csv"))
+    nan_file_count = 0
+    with ThreadPoolExecutor() as io_pool:
+        futures = [io_pool.submit(_infer_and_save, os.path.join(year_dir, f), model, features, prediction_column) for f in csv_files]
+        for fut in as_completed(futures):
+            if fut.result():
+                nan_file_count += 1
+    print(f"      Year {year} | {nan_file_count}/{len(csv_files)} files had NaN values (replaced with 0)")
+    return year, len(csv_files), nan_file_count
+
+
+def _loo_train_and_infer(args):
+    directory, year, train_years, annotated, features, prediction_column = args
+    if year not in annotated:
+        return year, None, None, 0
+    other_train_years = [y for y in train_years if y != year and y in annotated]
+    if not other_train_years:
+        return year, None, None, 0
+    model, metrics = train_possession_model(annotated, other_train_years)
+    _, n_files, _ = _run_inference_on_year((directory, year, model, features, prediction_column))
+    return year, other_train_years, metrics, n_files
+
+
 def run_pipeline(
     directory: str,
     train_years: list,
@@ -244,50 +309,42 @@ def run_pipeline(
         Name of the new column written to each CSV.
     """
     # --- Load and annotate all train years ---
+    print(f"[1/4] Loading dataset from: {directory}")
     all_train_data = load_dataset(directory, features)
     all_train_data = {y: all_train_data[y] for y in train_years if y in all_train_data}
+    print(f"      Loaded years: {sorted(all_train_data.keys())} | rows per year: { {y: arr.shape[0] for y, arr in all_train_data.items()} }")
+
+    print(f"[2/4] Annotating possessions ...")
     annotated = annotate_possessions(all_train_data, possession_index, score_difference_index)
+    print(f"      Done. Array shape after annotation (sample year {next(iter(annotated))}): {next(iter(annotated.values())).shape}")
 
-    # --- Leave-one-out inference on train years ---
-    for year in train_years:
-        if year not in annotated:
-            print(f"Skipping train year {year}: not found in dataset")
-            continue
+    # --- Leave-one-out inference on train years (parallel across years) ---
+    print(f"[3/4] Leave-one-out inference on train years: {train_years}")
+    with ProcessPoolExecutor() as pool:
+        futures = {pool.submit(_loo_train_and_infer, (directory, year, train_years, annotated, features, prediction_column)): year for year in train_years}
+        for fut in as_completed(futures):
+            year, trained_on, metrics, n_files = fut.result()
+            if metrics is None:
+                print(f"      [SKIP] Train year {year}")
+            else:
+                print(f"      Year {year} | trained on {trained_on} | train_acc={metrics['train_accuracy']:.4f} | test_acc={metrics['test_accuracy']:.4f} | saved {n_files} files\n{metrics['report']}")
 
-        other_train_years = [y for y in train_years if y != year and y in annotated]
-        if not other_train_years:
-            print(f"Skipping train year {year}: no other years to train on")
-            continue
-
-        model, metrics = train_possession_model(annotated, other_train_years)
-        print(f"Train year {year} | model trained on {other_train_years} | {metrics}")
-
-        year_dir = os.path.join(directory, str(year))
-        for fname in sorted(os.listdir(year_dir)):
-            if not fname.endswith(".csv"):
-                continue
-            fpath = os.path.join(year_dir, fname)
-            df = pd.read_csv(fpath)
-            df = run_inference(df, model, features, prediction_column)
-            df.to_csv(fpath, index=False)
-
-    # --- Train on all train years, run inference on test years ---
+    # --- Train on all train years, run inference on test years (parallel across years) ---
+    print(f"[4/4] Training final model on all train years: {sorted(annotated.keys())} ...")
     model, metrics = train_possession_model(annotated, list(annotated.keys()))
-    print(f"Final model trained on {list(annotated.keys())} | {metrics}")
+    print(f"      train_acc={metrics['train_accuracy']:.4f} | test_acc={metrics['test_accuracy']:.4f}\n{metrics['report']}")
 
-    for year in test_years:
-        year_dir = os.path.join(directory, str(year))
-        if not os.path.isdir(year_dir):
-            print(f"Skipping test year {year}: directory not found")
-            continue
+    print(f"      Running inference on test years: {test_years}")
+    with ProcessPoolExecutor() as pool:
+        futures = {pool.submit(_run_inference_on_year, (directory, year, model, features, prediction_column)): year for year in test_years}
+        for fut in as_completed(futures):
+            year, n_files, _ = fut.result()
+            if n_files == 0:
+                print(f"      [SKIP] Test year {year}: directory not found")
+            else:
+                print(f"      Year {year} | saved {n_files} files")
 
-        for fname in sorted(os.listdir(year_dir)):
-            if not fname.endswith(".csv"):
-                continue
-            fpath = os.path.join(year_dir, fname)
-            df = pd.read_csv(fpath)
-            df = run_inference(df, model, features, prediction_column)
-            df.to_csv(fpath, index=False)
+    print("Pipeline complete.")
 
 
 if __name__ == "__main__":
