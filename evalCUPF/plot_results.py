@@ -3,14 +3,23 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.stats import norm
+from dataclasses import dataclass
+from typing import List, Any
 
 def squared_error(y, p):
     return (y - p) ** 2
 
+
+@dataclass
+class CovBand:
+    C: Any        # covariance matrix (np.ndarray or pd.DataFrame)
+    label: str    # legend label for the confidence band
+    color: str    # fill color for the confidence band
+
+
 def calc_L_s2(
     df,
-    C1,
-    C2,
+    covs: List[CovBand],
     pA="phat_1",
     pB="phat_2",
     Y="Y",
@@ -19,7 +28,7 @@ def calc_L_s2(
 ):
     """
     Calculate pointwise mean loss difference and variance
-    using precomputed covariance matrices C1 and C2
+    using a list of CovBand inputs.
     """
 
     df = df.copy()
@@ -40,21 +49,17 @@ def calc_L_s2(
           .reset_index()
     )
 
-    # Extract diagonal of covariance matrices
-    if isinstance(C1, pd.DataFrame) and isinstance(C2, pd.DataFrame):
-        sigma2_df = (
-            pd.DataFrame({
-                grid: C1.index,
-                "sigma2_C1": np.diag(C1.values),
-                "sigma2_C2": np.diag(C2.values)
-            })
-        )
-    else:
-        sigma2_df = pd.DataFrame({
-            grid: np.unique(df[grid]),
-            "sigma2_C1": np.diag(C1),
-            "sigma2_C2": np.diag(C2)
-        })
+    # Extract diagonal of each covariance matrix into its own column
+    grid_vals = np.unique(df[grid])
+    sigma2_data = {grid: grid_vals}
+    for cov in covs:
+        col = f"sigma2_{cov.label}"
+        C = cov.C
+        if isinstance(C, pd.DataFrame):
+            sigma2_data[col] = np.diag(C.values)
+        else:
+            sigma2_data[col] = np.diag(C)
+    sigma2_df = pd.DataFrame(sigma2_data)
 
     # Merge everything
     out = (
@@ -66,58 +71,53 @@ def calc_L_s2(
     return out
 
 
-def plot_pcb(df, grid="grid", L="L", var_C1="sigma2_C1", var_C2="sigma2_C2", phat_A="phat_A", phat_B="phat_B", save_plot = None, pad=None):
+def plot_pcb(df, covs: List[CovBand], grid="grid", L="L", phat_A="phat_A", phat_B="phat_B", save_plot=None, pad=None):
     """
-    Plotter for point-wise confidence band using variances from C1 and C2
+    Plotter for point-wise confidence bands using a list of CovBand inputs.
     """
-    # z-values for 95% confidence interval
     z_hi = norm.ppf(0.975)
     z_lo = norm.ppf(0.025)
-
-    # Check if required columns exist
-    if not all(col in df.columns for col in [grid, L, var_C1, var_C2]):
-        raise ValueError(f"DataFrame must contain columns: {grid}, {L}, {var_C1}, {var_C2}")
 
     n = len(df)
     if n == 0:
         raise ValueError("DataFrame is empty.")
 
-    # Calculate standard error and confidence interval bounds for C1 and C2
-    se_C1 = np.sqrt(df[var_C1]) / np.sqrt(n)
-    se_C2 = np.sqrt(df[var_C2]) / np.sqrt(n)
+    required = [grid, L] + [f"sigma2_{cov.label}" for cov in covs]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"DataFrame is missing columns: {missing}")
 
-    if se_C1.isnull().any() or se_C2.isnull().any():
-        raise ValueError("Standard error contains NaN values. Check the variance columns.")
-
-    ymax_C1 = df[L] + z_hi * se_C1
-    ymin_C1 = df[L] + z_lo * se_C1
-    ymax_C2 = df[L] + z_hi * se_C2
-    ymin_C2 = df[L] + z_lo * se_C2
+    # Compute CI bounds for each CovBand
+    bands = []
+    for cov in covs:
+        col = f"sigma2_{cov.label}"
+        se = np.sqrt(df[col]) / np.sqrt(n)
+        if se.isnull().any():
+            raise ValueError(f"Standard error contains NaN values for '{cov.label}'.")
+        bands.append((cov, df[L] + z_lo * se, df[L] + z_hi * se))
 
     # Compute label positions
-    y_top = max(ymax_C1.max(skipna=True), ymax_C2.max(skipna=True))
-    y_bot = min(ymin_C1.min(skipna=True), ymin_C2.min(skipna=True))
+    y_top = max(ymax.max(skipna=True) for _, _, ymax in bands)
+    y_bot = min(ymin.min(skipna=True) for _, ymin, _ in bands)
     y_range = y_top - y_bot
     if pad is None:
-        pad = 0.01 * y_range  # 1% of y-range
+        pad = 0.01 * y_range
 
-    # Determine x position for text labels
     x_vals = df[grid]
     try:
         x_pos = x_vals.max()
-    except:
+    except Exception:
         x_pos = x_vals.iloc[-1]
 
     # Create plot
     plt.figure(figsize=(10, 6))
     ax = plt.gca()
-    ax.set_facecolor('#f0f0f0')  # Light grey background
+    ax.set_facecolor('#f0f0f0')
     sns.lineplot(data=df, x=grid, y=L, color="black", label="Mean Loss Difference")
-    plt.fill_between(df[grid], ymin_C1, ymax_C1, color='blue', alpha=0.2, label="95% CI (Risk Buckets)")
-    plt.fill_between(df[grid], ymin_C2, ymax_C2, color='black', alpha=0.2, label="95% CI (Conservative)")
+    for cov, ymin, ymax in bands:
+        plt.fill_between(df[grid], ymin, ymax, color=cov.color, alpha=0.2, label=f"95% CI ({cov.label})")
     plt.axhline(0, color='black', linewidth=1.25, linestyle="--")
     plt.grid(True, alpha=0.5, linestyle='--', linewidth=0.5, color='black')
-    # Annotate labels
     plt.text(x_pos, y_bot - pad, f"{phat_A} favoured", ha='right', va='top', fontsize=12, color="black")
     plt.text(x_pos, y_top + pad, f"{phat_B} favoured", ha='right', va='bottom', fontsize=12, color="black")
 
@@ -128,4 +128,3 @@ def plot_pcb(df, grid="grid", L="L", var_C1="sigma2_C1", var_C2="sigma2_C2", pha
     if save_plot is not None:
         plt.savefig(save_plot, dpi=300)
     plt.show()
-    
